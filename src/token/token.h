@@ -1,0 +1,76 @@
+#ifndef TOKEN_H
+#define TOKEN_H
+
+#define MAX_LEXEME 256
+
+typedef enum {
+    TOKEN_INTCON,
+    TOKEN_REALCON,
+    TOKEN_CHARCON,
+    TOKEN_STRING,
+    TOKEN_IDENT,
+    TOKEN_COMMENT,
+
+    TOKEN_PLUS,
+    TOKEN_MINUS,
+    TOKEN_TIMES,
+    TOKEN_IDIV,
+    TOKEN_RDIV,
+    TOKEN_IMOD,
+
+    TOKEN_ANDSY,
+    TOKEN_ORSY,
+    TOKEN_NOTSY,
+
+    TOKEN_EQL,
+    TOKEN_NEQ,
+    TOKEN_GTR,
+    TOKEN_GEQ,
+    TOKEN_LSS,
+    TOKEN_LEQ,
+
+    TOKEN_LPARENT,
+    TOKEN_RPARENT,
+    TOKEN_LBRACK,
+    TOKEN_RBRACK,
+    TOKEN_COMMA,
+    TOKEN_SEMICOLON,
+    TOKEN_PERIOD,
+    TOKEN_COLON,
+    TOKEN_BECOMES,
+
+    TOKEN_CONSTSY,
+    TOKEN_TYPESY,
+    TOKEN_VARSY,
+    TOKEN_FUNCTIONSY,
+    TOKEN_PROCEDURESY,
+    TOKEN_ARRAYSY,
+    TOKEN_RECORDSY,
+    TOKEN_PROGRAMSY,
+    TOKEN_BEGINSY,
+    TOKEN_IFSY,
+    TOKEN_CASESY,
+    TOKEN_REPEATSY,
+    TOKEN_WHILESY,
+    TOKEN_FORSY,
+    TOKEN_ENDSY,
+    TOKEN_ELSESY,
+    TOKEN_UNTILSY,
+    TOKEN_OFSY,
+    TOKEN_DOSY,
+    TOKEN_TOSY,
+    TOKEN_DOWNTOSY,
+    TOKEN_THENSY,
+
+    TOKEN_EOF,
+    TOKEN_UNKNOWN
+} TokenType;
+
+typedef struct {
+    TokenType type;
+    char lexeme[MAX_LEXEME];
+} Token;
+
+const char *tokenTypeToString(TokenType type);
+
+#endif
