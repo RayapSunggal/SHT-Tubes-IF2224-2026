@@ -68,7 +68,7 @@ static void writeToken(FILE *stream, const Token *tk) {
 static void tokenize(Lexer *lx, FILE *out) {
     Token tk;
     while (true) {
-        tk=getNextToken(lx);
+        tk=getToken(lx);
         if (tk.type==TOKEN_EOF) {
             return;
         }
@@ -131,4 +131,3 @@ int main(void) {
         closeLexer(&lx);
     }
 }
-
