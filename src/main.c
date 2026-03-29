@@ -65,16 +65,17 @@ static void writeToken(FILE *stream, const Token *tk) {
     }
 }
 
-static void tokenizeRecursive(Lexer *lx, FILE *out) {
-    Token tk=getNextToken(lx);
+static void tokenize(Lexer *lx, FILE *out) {
+    Token tk;
+    while (true) {
+        tk=getNextToken(lx);
+        if (tk.type==TOKEN_EOF) {
+            return;
+        }
 
-    if (tk.type==TOKEN_EOF) {
-        return;
+        writeToken(stdout, &tk);
+        writeToken(out, &tk);
     }
-
-    writeToken(stdout, &tk);
-    writeToken(out, &tk);
-    tokenizeRecursive(lx, out);
 }
 
 int main(void) {
@@ -124,9 +125,10 @@ int main(void) {
         }
 
         printf("\nHasil tokenisasi:\n\n");
-        tokenizeRecursive(&lx, out);
+        tokenize(&lx, out);
 
         fclose(out);
         closeLexer(&lx);
     }
 }
+

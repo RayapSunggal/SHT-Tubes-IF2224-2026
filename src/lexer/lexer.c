@@ -325,25 +325,6 @@ Token getNextToken(Lexer *lx) {
                     break;
                 }
 
-                if (lx->current=='.' && lexerPeek(lx, &next) && isDigitChar(next)) {
-                    appendChar(lexeme, &idx, '.');
-                    lexerAdvance(lx);
-
-                    while (!lx->eof && isDigitChar(lx->current)) {
-                        appendChar(lexeme, &idx, lx->current);
-                        lexerAdvance(lx);
-                    }
-
-                    if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
-                        consumeInvalidExponent(lx, lexeme, &idx);
-                    }
-
-                    lexeme[idx]='\0';
-                    setUnknownToken(&token, lexeme);
-                    lx->state=STATE_UNKNOWN;
-                    break;
-                }
-
                 switch (lx->current) {
                     case '+':
                         lexerAdvance(lx);
