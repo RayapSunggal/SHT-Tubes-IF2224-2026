@@ -147,9 +147,6 @@ static void syncWithMachine(Lexer *lx) {
 
 void initLexer(Lexer *lx, const char *filename) {
     lx->ready=STARTFILE(filename);
-    lx->hasPeek=false;
-    lx->peekEof=true;
-    lx->peekChar='\0';
     lx->pendingPeriods=0;
     lx->state=STATE_START;
 
@@ -170,9 +167,6 @@ void closeLexer(Lexer *lx) {
     lx->ready=false;
     lx->eof=true;
     lx->current='\0';
-    lx->hasPeek=false;
-    lx->peekEof=true;
-    lx->peekChar='\0';
     lx->pendingPeriods=0;
     lx->state=STATE_DONE;
 }
@@ -182,35 +176,8 @@ static void lexerAdvance(Lexer *lx) {
         return;
     }
 
-    if (lx->hasPeek) {
-        lx->hasPeek=false;
-        lx->eof=lx->peekEof;
-        lx->current=lx->peekEof ? '\0' : lx->peekChar;
-    }
-    else {
-        ADV();
-        syncWithMachine(lx);
-    }
-}
-
-static bool lexerPeek(Lexer *lx, char *out) {
-    if (lx->eof) {
-        return false;
-    }
-
-    if (!lx->hasPeek) {
-        ADV();
-        lx->peekEof=EOP;
-        lx->peekChar=EOP ? '\0' : CC;
-        lx->hasPeek=true;
-    }
-
-    if (lx->peekEof) {
-        return false;
-    }
-
-    *out=lx->peekChar;
-    return true;
+    ADV();
+    syncWithMachine(lx);
 }
 
 static void consumeInvalidExponent(Lexer *lx, char *lexeme, int *idx) {
@@ -237,13 +204,11 @@ Token getToken(Lexer *lx) {
     Token token;
     char lexeme[MAX_LEXEME];
     int idx=0;
-    char next='\0';
 
     if (!lx->ready) {
         setToken(&token, TOKEN_EOF, "EOF");
         return token;
     }
-
     if (lx->pendingPeriods > 0) {
         lx->pendingPeriods--;
         setToken(&token, TOKEN_PERIOD, ".");
@@ -256,10 +221,10 @@ Token getToken(Lexer *lx) {
         switch (lx->state) {
             case STATE_START:
                 while (!lx->eof && isspace((unsigned char)lx->current)) {
-                    lexerAdvance(lx);
+                    lexerAdvance(lx); //skip baca spasi
                 }
 
-                if (lx->eof) {
+                if (lx->eof) { //sudah habis baca
                     setToken(&token, TOKEN_EOF, "EOF");
                     lx->state=STATE_DONE;
                     break;
@@ -268,14 +233,14 @@ Token getToken(Lexer *lx) {
                 idx=0;
                 lexeme[0]='\0';
 
-                if (isIdentifierStart(lx->current)) {
+                if (isIdentifierStart(lx->current)) { //ciri-ciri identifier
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                     lx->state=STATE_IDENT;
                     break;
                 }
 
-                if (isDigitChar(lx->current)) {
+                if (isDigitChar(lx->current)) { //ciri-ciri kalau angka
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                     lx->state=STATE_NUMBER;
@@ -318,29 +283,41 @@ Token getToken(Lexer *lx) {
                     break;
                 }
 
-                if (lx->current=='(' && lexerPeek(lx, &next) && next=='*') {
+                if (lx->current=='(') {//ciri ciri komen atau kurung saja
                     lexerAdvance(lx);
-                    lexerAdvance(lx);
-                    lx->state=STATE_COMMENT_PAREN;
+                    if (!lx->eof && lx->current=='*') {
+                        lexerAdvance(lx);
+                        lx->state=STATE_COMMENT_PAREN;
+                    }
+                    else {
+                        setToken(&token, TOKEN_LPARENT, "(");
+                        lx->state=STATE_DONE;
+                    }
                     break;
                 }
 
-                if (lx->current=='.' && lexerPeek(lx, &next) && isDigitChar(next)) {
-                    appendChar(lexeme, &idx, '.');
+                if (lx->current=='.') {
                     lexerAdvance(lx);
+                    if (!lx->eof && isDigitChar(lx->current)) {
+                        appendChar(lexeme, &idx, '.');
 
-                    while (!lx->eof && isDigitChar(lx->current)) {
-                        appendChar(lexeme, &idx, lx->current);
-                        lexerAdvance(lx);
+                        while (!lx->eof && isDigitChar(lx->current)) {
+                            appendChar(lexeme, &idx, lx->current);
+                            lexerAdvance(lx);
+                        }
+
+                        if (!lx->eof && (lx->current=='e' || lx->current=='E')) { //tangani kasus 1.2e-10
+                            consumeInvalidExponent(lx, lexeme, &idx);
+                        }
+
+                        lexeme[idx]='\0';
+                        setUnknownToken(&token, lexeme);
+                        lx->state=STATE_UNKNOWN;
                     }
-
-                    if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
-                        consumeInvalidExponent(lx, lexeme, &idx);
+                    else {
+                        setToken(&token, TOKEN_PERIOD, ".");
+                        lx->state=STATE_DONE;
                     }
-
-                    lexeme[idx]='\0';
-                    setUnknownToken(&token, lexeme);
-                    lx->state=STATE_UNKNOWN;
                     break;
                 }
 
@@ -363,11 +340,6 @@ Token getToken(Lexer *lx) {
                     case '/':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_RDIV, "/");
-                        lx->state=STATE_DONE;
-                        break;
-                    case '(':
-                        lexerAdvance(lx);
-                        setToken(&token, TOKEN_LPARENT, "(");
                         lx->state=STATE_DONE;
                         break;
                     case ')':
@@ -395,11 +367,6 @@ Token getToken(Lexer *lx) {
                         setToken(&token, TOKEN_SEMICOLON, ";");
                         lx->state=STATE_DONE;
                         break;
-                    case '.':
-                        lexerAdvance(lx);
-                        setToken(&token, TOKEN_PERIOD, ".");
-                        lx->state=STATE_DONE;
-                        break;
                     default:
                         lexeme[0]=lx->current;
                         lexeme[1]='\0';
@@ -420,7 +387,6 @@ Token getToken(Lexer *lx) {
                 setToken(&token, resolveIdentifierType(lexeme), lexeme);
                 lx->state=STATE_DONE;
                 break;
-
             case STATE_NUMBER:
                 while (!lx->eof && isDigitChar(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
@@ -428,55 +394,49 @@ Token getToken(Lexer *lx) {
                 }
 
                 if (!lx->eof && lx->current=='.') {
-                    if (lexerPeek(lx, &next) && isDigitChar(next)) {
+                    lexerAdvance(lx);
+
+                    if (!lx->eof && isDigitChar(lx->current)) {
                         appendChar(lexeme, &idx, '.');
-                        lexerAdvance(lx);
                         lx->state=STATE_REAL;
+                        break;
                     }
-                    else if (lexerPeek(lx, &next) && next=='.') {
-                        lexerAdvance(lx);
-                        lexerAdvance(lx);
-                        lx->pendingPeriods=2;
-                        lexeme[idx]='\0';
-                        setToken(&token, TOKEN_INTCON, lexeme);
-                        lx->state=STATE_DONE;
-                    }
-                    else {
-                        lexeme[idx]='\0';
-                        setToken(&token, TOKEN_INTCON, lexeme);
-                        lx->state=STATE_DONE;
-                    }
+
+                    lx->pendingPeriods=1;
                 }
                 else if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
                     consumeInvalidExponent(lx, lexeme, &idx);
                     lexeme[idx]='\0';
                     setUnknownToken(&token, lexeme);
                     lx->state=STATE_UNKNOWN;
+                    break;
                 }
-                else {
-                    lexeme[idx]='\0';
-                    setToken(&token, TOKEN_INTCON, lexeme);
-                    lx->state=STATE_DONE;
-                }
-                break;
 
+                lexeme[idx]='\0';
+                setToken(&token, TOKEN_INTCON, lexeme);
+                lx->state=STATE_DONE;
+                break;
             case STATE_REAL:
                 while (!lx->eof && isDigitChar(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                 }
 
-                if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
+                if (!lx->eof && lx->current=='.') {
+                    lexerAdvance(lx);
+                    lx->pendingPeriods=1;
+                }
+                else if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
                     consumeInvalidExponent(lx, lexeme, &idx);
                     lexeme[idx]='\0';
                     setUnknownToken(&token, lexeme);
                     lx->state=STATE_UNKNOWN;
+                    break;
                 }
-                else {
-                    lexeme[idx]='\0';
-                    setToken(&token, TOKEN_REALCON, lexeme);
-                    lx->state=STATE_DONE;
-                }
+
+                lexeme[idx]='\0';
+                setToken(&token, TOKEN_REALCON, lexeme);
+                lx->state=STATE_DONE;
                 break;
 
             case STATE_QUOTE:
@@ -488,9 +448,10 @@ Token getToken(Lexer *lx) {
                     }
 
                     if (lx->current=='\'') {
-                        if (lexerPeek(lx, &next) && next=='\'') {
+                        lexerAdvance(lx);
+
+                        if (!lx->eof && lx->current=='\'') {
                             appendChar(lexeme, &idx, '\'');
-                            lexerAdvance(lx);
                             lexerAdvance(lx);
 
                             if (idx==1 && (lx->eof || isQuoteBoundaryChar(lx->current))) {
@@ -503,7 +464,6 @@ Token getToken(Lexer *lx) {
                             continue;
                         }
 
-                        lexerAdvance(lx);
                         lexeme[idx]='\0';
                         if (idx==1) {
                             setToken(&token, TOKEN_CHARCON, lexeme);
@@ -594,13 +554,18 @@ Token getToken(Lexer *lx) {
 
             case STATE_COMMENT_PAREN:
                 while (!lx->eof) {
-                    if (lx->current=='*' && lexerPeek(lx, &next) && next==')') {
+                    if (lx->current=='*') {
                         lexerAdvance(lx);
-                        lexerAdvance(lx);
-                        lexeme[idx]='\0';
-                        setToken(&token, TOKEN_COMMENT, lexeme);
-                        lx->state=STATE_DONE;
-                        break;
+                        if (!lx->eof && lx->current==')') {
+                            lexerAdvance(lx);
+                            lexeme[idx]='\0';
+                            setToken(&token, TOKEN_COMMENT, lexeme);
+                            lx->state=STATE_DONE;
+                            break;
+                        }
+
+                        appendChar(lexeme, &idx, '*');
+                        continue;
                     }
 
                     appendChar(lexeme, &idx, lx->current);

@@ -26,10 +26,6 @@ typedef struct {
     bool eof;
     char current;
 
-    bool hasPeek;
-    bool peekEof;
-    char peekChar;
-
     int pendingPeriods;
     LexerState state;
 } Lexer;
