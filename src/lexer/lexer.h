@@ -36,6 +36,6 @@ typedef struct {
 
 void initLexer(Lexer *lx, const char *filename);
 void closeLexer(Lexer *lx);
-Token getNextToken(Lexer *lx);
+Token getToken(Lexer *lx);
 
 #endif

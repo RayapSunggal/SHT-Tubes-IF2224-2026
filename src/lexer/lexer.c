@@ -233,7 +233,7 @@ static void consumeInvalidExponent(Lexer *lx, char *lexeme, int *idx) {
     }
 }
 
-Token getNextToken(Lexer *lx) {
+Token getToken(Lexer *lx) {
     Token token;
     char lexeme[MAX_LEXEME];
     int idx=0;
