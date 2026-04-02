@@ -1,0 +1,4 @@
+unknown (1e)
+unknown (Invalid '=')
+intcon (10)
+semicolon
