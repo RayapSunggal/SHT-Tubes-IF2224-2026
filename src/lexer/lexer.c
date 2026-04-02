@@ -310,14 +310,7 @@ Token getToken(Lexer *lx) {
                     case '-':
                         appendChar(lexeme, &idx, '-');
                         lexerAdvance(lx);
-
-                        if (!lx->eof && isDigitChar(lx->current)) {
-                            lx->state=STATE_NUMBER;
-                        }
-                        else {
-                            setToken(&token, TOKEN_MINUS, "-");
-                            RETURN_TOKEN();
-                        }
+                        lx->state=STATE_MINUS;
                         break;
                     case '*':
                         lexerAdvance(lx);
@@ -353,6 +346,16 @@ Token getToken(Lexer *lx) {
                         lexerAdvance(lx);
                         setUnknownToken(&token, lexeme);
                         RETURN_TOKEN();
+                }
+                break;
+
+            case STATE_MINUS:
+                if (!lx->eof && isDigitChar(lx->current)) {
+                    lx->state=STATE_NUMBER;
+                }
+                else {
+                    setToken(&token, TOKEN_MINUS, "-");
+                    RETURN_TOKEN();
                 }
                 break;
 
@@ -426,16 +429,16 @@ Token getToken(Lexer *lx) {
                 RETURN_TOKEN();
 
             case STATE_INVALID_EXPONENT:
-                if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
-                    appendChar(lexeme, &idx, lx->current);
-                    lexerAdvance(lx);
-                    lx->state=STATE_INVALID_EXPONENT_SIGN;
-                    break;
+                if (lx->eof) {
+                    lexeme[idx]='\0';
+                    setUnknownToken(&token, lexeme);
+                    RETURN_TOKEN();
                 }
 
-                lexeme[idx]='\0';
-                setUnknownToken(&token, lexeme);
-                RETURN_TOKEN();
+                appendChar(lexeme, &idx, lx->current);
+                lexerAdvance(lx);
+                lx->state=STATE_INVALID_EXPONENT_SIGN;
+                break;
 
             case STATE_INVALID_EXPONENT_SIGN:
                 if (!lx->eof && (lx->current=='+' || lx->current=='-')) {
@@ -1213,4 +1216,7 @@ Token getToken(Lexer *lx) {
 
 #undef RETURN_TOKEN
 #undef RETURN_TOKEN_KEEP_STATE
+
+
+
 

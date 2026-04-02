@@ -15,6 +15,7 @@ typedef enum {
     STATE_LT,
     STATE_GT,
     STATE_EQUAL,
+    STATE_MINUS,
     STATE_BRACKET,
     STATE_PERIOD,
     STATE_PENDING_PERIOD,
@@ -160,6 +161,7 @@ void closeLexer(Lexer *lx);
 Token getToken(Lexer *lx);
 
 #endif
+
 
 
 
