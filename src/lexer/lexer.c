@@ -5,41 +5,6 @@
 
 #include "../mesinkarakter/mesinkarakter.h"
 
-typedef struct {
-    const char *text;
-    TokenType type;
-} Keyword;
-
-static const Keyword KEYWORDS[]={
-    {"program", TOKEN_PROGRAMSY},
-    {"var", TOKEN_VARSY},
-    {"const", TOKEN_CONSTSY},
-    {"type", TOKEN_TYPESY},
-    {"function", TOKEN_FUNCTIONSY},
-    {"procedure", TOKEN_PROCEDURESY},
-    {"array", TOKEN_ARRAYSY},
-    {"record", TOKEN_RECORDSY},
-    {"begin", TOKEN_BEGINSY},
-    {"end", TOKEN_ENDSY},
-    {"if", TOKEN_IFSY},
-    {"case", TOKEN_CASESY},
-    {"repeat", TOKEN_REPEATSY},
-    {"while", TOKEN_WHILESY},
-    {"for", TOKEN_FORSY},
-    {"else", TOKEN_ELSESY},
-    {"until", TOKEN_UNTILSY},
-    {"of", TOKEN_OFSY},
-    {"do", TOKEN_DOSY},
-    {"to", TOKEN_TOSY},
-    {"downto", TOKEN_DOWNTOSY},
-    {"then", TOKEN_THENSY},
-    {"div", TOKEN_IDIV},
-    {"mod", TOKEN_IMOD},
-    {"and", TOKEN_ANDSY},
-    {"or", TOKEN_ORSY},
-    {"not", TOKEN_NOTSY}
-};
-
 static void setToken(Token *t, TokenType type, const char *lexeme) {
     size_t n;
 
@@ -76,6 +41,7 @@ static bool isIdentifierStart(char c) {
     return isLetter(c);
 }
 
+
 static bool isIdentifierPart(char c) {
     return isLetter(c) || isDigitChar(c);
 }
@@ -109,33 +75,12 @@ static bool isQuoteBoundaryChar(char c) {
     }
 }
 
-static void toLowerStr(char *s) {
-    int i=0;
-
-    while (s[i]!='\0') {
-        s[i]=(char)tolower((unsigned char)s[i]);
-        i++;
-    }
-}
 
 static char lowerChar(char c) {
     return (char)tolower((unsigned char)c);
 }
-
 static TokenType resolveIdentifierType(const char *lexeme) {
-    char lower[MAX_LEXEME];
-    size_t i;
-
-    strncpy(lower, lexeme, MAX_LEXEME - 1);
-    lower[MAX_LEXEME - 1]='\0';
-    toLowerStr(lower);
-
-    for (i=0; i < (sizeof(KEYWORDS) / sizeof(KEYWORDS[0])); i++) {
-        if (strcmp(lower, KEYWORDS[i].text)==0) {
-            return KEYWORDS[i].type;
-        }
-    }
-
+    (void)lexeme;
     return TOKEN_IDENT;
 }
 
@@ -151,7 +96,6 @@ static void syncWithMachine(Lexer *lx) {
 
 void initLexer(Lexer *lx, const char *filename) {
     lx->ready=STARTFILE(filename);
-    lx->pendingPeriods=0;
     lx->state=STATE_START;
 
     if (lx->ready) {
@@ -171,8 +115,7 @@ void closeLexer(Lexer *lx) {
     lx->ready=false;
     lx->eof=true;
     lx->current='\0';
-    lx->pendingPeriods=0;
-    lx->state=STATE_DONE;
+    lx->state=STATE_START;
 }
 
 static void lexerAdvance(Lexer *lx) {
@@ -208,6 +151,10 @@ static LexerState initialKeywordState(char firstChar) {
             return STATE_B;
         case 'i':
             return STATE_I;
+        case 'n':
+            return STATE_N;
+        case 'm':
+            return STATE_M;
         case 'w':
             return STATE_W;
         case 'e':
@@ -240,7 +187,7 @@ static void keywordStepOrFallback(
     }
 }
 
-static void finishKeywordOrIdent(
+static bool finishKeywordOrIdent(
     Lexer *lx,
     Token *token,
     char *lexeme,
@@ -250,12 +197,15 @@ static void finishKeywordOrIdent(
     if (lx->eof || !isIdentifierPart(lx->current)) {
         lexeme[idx]='\0';
         setToken(token, keywordType, lexeme);
-        lx->state=STATE_DONE;
+        return true;
     }
-    else {
-        lx->state=STATE_IDENT;
-    }
+
+    lx->state=STATE_IDENT;
+    return false;
 }
+
+#define RETURN_TOKEN() do { lx->state=STATE_START; return token; } while (0)
+#define RETURN_TOKEN_KEEP_STATE() do { return token; } while (0)
 
 Token getToken(Lexer *lx) {
     Token token;
@@ -264,31 +214,31 @@ Token getToken(Lexer *lx) {
 
     if (!lx->ready) {
         setToken(&token, TOKEN_EOF, "EOF");
-        return token;
-    }
-    if (lx->pendingPeriods > 0) {
-        lx->pendingPeriods--;
-        setToken(&token, TOKEN_PERIOD, ".");
-        return token;
+        RETURN_TOKEN();
     }
 
-    lx->state=STATE_START;
+    lexeme[0]='\0';
 
-    while (lx->state!=STATE_DONE && lx->state!=STATE_UNKNOWN) {
+    for (;;) {
         switch (lx->state) {
+            case STATE_PENDING_PERIOD:
+                lx->state=STATE_START;
+                setToken(&token, TOKEN_PERIOD, ".");
+                RETURN_TOKEN();
+
             case STATE_START:
-                while (!lx->eof && isspace((unsigned char)lx->current)) {
-                    lexerAdvance(lx); //skip baca spasi
-                }
-
-                if (lx->eof) { //sudah habis baca
-                    setToken(&token, TOKEN_EOF, "EOF");
-                    lx->state=STATE_DONE;
-                    break;
-                }
-
                 idx=0;
                 lexeme[0]='\0';
+
+                if (lx->eof) {
+                    setToken(&token, TOKEN_EOF, "EOF");
+                    RETURN_TOKEN();
+                }
+
+                if (isspace((unsigned char)lx->current)) {
+                    lexerAdvance(lx); //skip baca spasi
+                    break;
+                }
 
                 if (isIdentifierStart(lx->current)) { //ciri-ciri identifier
                     appendChar(lexeme, &idx, lx->current);
@@ -356,137 +306,136 @@ Token getToken(Lexer *lx) {
                     case '+':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_PLUS, "+");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     case '-':
                         appendChar(lexeme, &idx, '-');
                         lexerAdvance(lx);
 
                         if (!lx->eof && isDigitChar(lx->current)) {
-                            appendChar(lexeme, &idx, lx->current);
-                            lexerAdvance(lx);
                             lx->state=STATE_NUMBER;
                         }
                         else {
                             setToken(&token, TOKEN_MINUS, "-");
-                            lx->state=STATE_DONE;
+                            RETURN_TOKEN();
                         }
                         break;
                     case '*':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_TIMES, "*");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     case '/':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_RDIV, "/");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     case ')':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_RPARENT, ")");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     case '[':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_LBRACK, "[");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     case ']':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_RBRACK, "]");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     case ',':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_COMMA, ",");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     case ';':
                         lexerAdvance(lx);
                         setToken(&token, TOKEN_SEMICOLON, ";");
-                        lx->state=STATE_DONE;
-                        break;
+                        RETURN_TOKEN();
                     default:
                         lexeme[0]=lx->current;
                         lexeme[1]='\0';
                         lexerAdvance(lx);
                         setUnknownToken(&token, lexeme);
-                        lx->state=STATE_UNKNOWN;
-                        break;
+                        RETURN_TOKEN();
                 }
                 break;
 
             case STATE_IDENT:
-                while (!lx->eof && isIdentifierPart(lx->current)) {
+                if (!lx->eof && isIdentifierPart(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
+                    break;
                 }
 
                 lexeme[idx]='\0';
                 setToken(&token, resolveIdentifierType(lexeme), lexeme);
-                lx->state=STATE_DONE;
-                break;
+                RETURN_TOKEN();
 
             case STATE_NUMBER:
-                while (!lx->eof && isDigitChar(lx->current)) {
+                if (!lx->eof && isDigitChar(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
+                    break;
                 }
 
                 if (!lx->eof && lx->current=='.') {
                     lexerAdvance(lx);
-
-                    if (!lx->eof && isDigitChar(lx->current)) {
-                        appendChar(lexeme, &idx, '.');
-                        lx->state=STATE_REAL;
-                        break;
-                    }
-
-                    lx->pendingPeriods=1;
+                    lx->state=STATE_NUMBER_DOT;
+                    break;
                 }
-                else if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
+
+                if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
                     lx->state=STATE_INVALID_EXPONENT;
                     break;
                 }
 
                 lexeme[idx]='\0';
                 setToken(&token, TOKEN_INTCON, lexeme);
-                lx->state=STATE_DONE;
-                break;
+                RETURN_TOKEN();
+
+            case STATE_NUMBER_DOT:
+                if (!lx->eof && isDigitChar(lx->current)) {
+                    appendChar(lexeme, &idx, '.');
+                    lx->state=STATE_REAL;
+                    break;
+                }
+
+                lx->state=STATE_PENDING_PERIOD;
+                lexeme[idx]='\0';
+                setToken(&token, TOKEN_INTCON, lexeme);
+                RETURN_TOKEN_KEEP_STATE();
 
             case STATE_REAL:
-                while (!lx->eof && isDigitChar(lx->current)) {
+                if (!lx->eof && isDigitChar(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
+                    break;
                 }
 
                 if (!lx->eof && lx->current=='.') {
                     lexerAdvance(lx);
-                    lx->pendingPeriods=1;
+                    lx->state=STATE_PENDING_PERIOD;
+                    lexeme[idx]='\0';
+                    setToken(&token, TOKEN_REALCON, lexeme);
+                    RETURN_TOKEN_KEEP_STATE();
                 }
-                else if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
+
+                if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
                     lx->state=STATE_INVALID_EXPONENT;
                     break;
                 }
 
                 lexeme[idx]='\0';
                 setToken(&token, TOKEN_REALCON, lexeme);
-                lx->state=STATE_DONE;
-                break;
+                RETURN_TOKEN();
 
             case STATE_INVALID_EXPONENT:
                 if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                     lx->state=STATE_INVALID_EXPONENT_SIGN;
+                    break;
                 }
-                else {
-                    lexeme[idx]='\0';
-                    setUnknownToken(&token, lexeme);
-                    lx->state=STATE_UNKNOWN;
-                }
-                break;
+
+                lexeme[idx]='\0';
+                setUnknownToken(&token, lexeme);
+                RETURN_TOKEN();
 
             case STATE_INVALID_EXPONENT_SIGN:
                 if (!lx->eof && (lx->current=='+' || lx->current=='-')) {
@@ -497,20 +446,15 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_INVALID_EXPONENT_BODY:
-                while (!lx->eof && isDigitChar(lx->current)) {
+                if (!lx->eof && isIdentifierPart(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
-                }
-
-                while (!lx->eof && isIdentifierPart(lx->current)) {
-                    appendChar(lexeme, &idx, lx->current);
-                    lexerAdvance(lx);
+                    break;
                 }
 
                 lexeme[idx]='\0';
                 setUnknownToken(&token, lexeme);
-                lx->state=STATE_UNKNOWN;
-                break;
+                RETURN_TOKEN();
 
             case STATE_C:
                 if (currentIs(lx, 'o')) {
@@ -541,7 +485,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_CONST:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_CONSTSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_CONSTSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_CA:
@@ -553,7 +499,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_CASE:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_CASESY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_CASESY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_T:
@@ -586,11 +534,15 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_TYPE:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_TYPESY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_TYPESY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_TO:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_TOSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_TOSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_TH:
@@ -602,7 +554,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_THEN:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_THENSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_THENSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_V:
@@ -614,7 +568,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_VAR:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_VARSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_VARSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_F:
@@ -658,7 +614,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_FUNCTION:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_FUNCTIONSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_FUNCTIONSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_FO:
@@ -666,7 +624,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_FOR:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_FORSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_FORSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_P:
@@ -714,7 +674,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_PROCEDURE:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_PROCEDURESY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_PROCEDURESY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_PROG:
@@ -730,10 +692,34 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_PROGRAM:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_PROGRAMSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_PROGRAMSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
             case STATE_A:
-                keywordStepOrFallback(lx, lexeme, &idx, 'r', STATE_AR);
+                if (currentIs(lx, 'n')) {
+                    appendChar(lexeme, &idx, lx->current);
+                    lexerAdvance(lx);
+                    lx->state=STATE_AN;
+                }
+                else if (currentIs(lx, 'r')) {
+                    appendChar(lexeme, &idx, lx->current);
+                    lexerAdvance(lx);
+                    lx->state=STATE_AR;
+                }
+                else {
+                    lx->state=STATE_IDENT;
+                }
+                break;
+
+            case STATE_AN:
+                keywordStepOrFallback(lx, lexeme, &idx, 'd', STATE_AND);
+                break;
+
+            case STATE_AND:
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ANDSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_AR:
@@ -749,7 +735,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_ARRAY:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ARRAYSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ARRAYSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_R:
@@ -785,7 +773,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_RECORD:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_RECORDSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_RECORDSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_REP:
@@ -801,7 +791,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_REPEAT:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_REPEATSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_REPEATSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_B:
@@ -821,7 +813,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_BEGIN:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_BEGINSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_BEGINSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_I:
@@ -829,7 +823,37 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_IF:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_IFSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_IFSY)) {
+                    RETURN_TOKEN();
+                }
+                break;
+
+            case STATE_N:
+                keywordStepOrFallback(lx, lexeme, &idx, 'o', STATE_NO);
+                break;
+
+            case STATE_NO:
+                keywordStepOrFallback(lx, lexeme, &idx, 't', STATE_NOT);
+                break;
+
+            case STATE_NOT:
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_NOTSY)) {
+                    RETURN_TOKEN();
+                }
+                break;
+
+            case STATE_M:
+                keywordStepOrFallback(lx, lexeme, &idx, 'o', STATE_MO);
+                break;
+
+            case STATE_MO:
+                keywordStepOrFallback(lx, lexeme, &idx, 'd', STATE_MOD);
+                break;
+
+            case STATE_MOD:
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_IMOD)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_W:
@@ -849,7 +873,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_WHILE:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_WHILESY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_WHILESY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_E:
@@ -873,7 +899,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_END:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ENDSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ENDSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_EL:
@@ -885,7 +913,9 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_ELSE:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ELSESY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ELSESY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_U:
@@ -905,19 +935,63 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_UNTIL:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_UNTILSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_UNTILSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_O:
-                keywordStepOrFallback(lx, lexeme, &idx, 'f', STATE_OF);
+                if (currentIs(lx, 'f')) {
+                    appendChar(lexeme, &idx, lx->current);
+                    lexerAdvance(lx);
+                    lx->state=STATE_OF;
+                }
+                else if (currentIs(lx, 'r')) {
+                    appendChar(lexeme, &idx, lx->current);
+                    lexerAdvance(lx);
+                    lx->state=STATE_OR;
+                }
+                else {
+                    lx->state=STATE_IDENT;
+                }
                 break;
 
             case STATE_OF:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_OFSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_OFSY)) {
+                    RETURN_TOKEN();
+                }
+                break;
+
+            case STATE_OR:
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_ORSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_D:
-                keywordStepOrFallback(lx, lexeme, &idx, 'o', STATE_DO);
+                if (currentIs(lx, 'o')) {
+                    appendChar(lexeme, &idx, lx->current);
+                    lexerAdvance(lx);
+                    lx->state=STATE_DO;
+                }
+                else if (currentIs(lx, 'i')) {
+                    appendChar(lexeme, &idx, lx->current);
+                    lexerAdvance(lx);
+                    lx->state=STATE_DI;
+                }
+                else {
+                    lx->state=STATE_IDENT;
+                }
+                break;
+
+            case STATE_DI:
+                keywordStepOrFallback(lx, lexeme, &idx, 'v', STATE_DIV);
+                break;
+
+            case STATE_DIV:
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_IDIV)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_DO:
@@ -926,8 +1000,8 @@ Token getToken(Lexer *lx) {
                     lexerAdvance(lx);
                     lx->state=STATE_DOW;
                 }
-                else {
-                    finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_DOSY);
+                else if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_DOSY)) {
+                    RETURN_TOKEN();
                 }
                 break;
 
@@ -944,53 +1018,51 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_DOWNTO:
-                finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_DOWNTOSY);
+                if (finishKeywordOrIdent(lx, &token, lexeme, idx, TOKEN_DOWNTOSY)) {
+                    RETURN_TOKEN();
+                }
                 break;
 
             case STATE_QUOTE:
-                while (!lx->eof) {
-                    if (lx->current=='\n' || lx->current=='\r') {
-                        setUnknownToken(&token, "Invalid string");
-                        lx->state=STATE_UNKNOWN;
-                        break;
-                    }
-
-                    if (lx->current=='\'') {
-                        lexerAdvance(lx);
-
-                        if (!lx->eof && lx->current=='\'') {
-                            appendChar(lexeme, &idx, '\'');
-                            lexerAdvance(lx);
-
-                            if (idx==1 && (lx->eof || isQuoteBoundaryChar(lx->current))) {
-                                lexeme[idx]='\0';
-                                setToken(&token, TOKEN_CHARCON, lexeme);
-                                lx->state=STATE_DONE;
-                                break;
-                            }
-
-                            continue;
-                        }
-
-                        lexeme[idx]='\0';
-                        if (idx==1) {
-                            setToken(&token, TOKEN_CHARCON, lexeme);
-                        }
-                        else {
-                            setToken(&token, TOKEN_STRING, lexeme);
-                        }
-                        lx->state=STATE_DONE;
-                        break;
-                    }
-
-                    appendChar(lexeme, &idx, lx->current);
-                    lexerAdvance(lx);
-                }
-
-                if (lx->state!=STATE_DONE && lx->eof) {
+                if (lx->eof || lx->current=='\n' || lx->current=='\r') {
                     setUnknownToken(&token, "Invalid string");
-                    lx->state=STATE_UNKNOWN;
+                    RETURN_TOKEN();
                 }
+
+                if (lx->current=='\'') {
+                    lexerAdvance(lx);
+                    lx->state=STATE_QUOTE_AFTER_QUOTE;
+                    break;
+                }
+
+                appendChar(lexeme, &idx, lx->current);
+                lexerAdvance(lx);
+                break;
+
+            case STATE_QUOTE_AFTER_QUOTE:
+                if (!lx->eof && lx->current=='\'') {
+                    appendChar(lexeme, &idx, '\'');
+                    lexerAdvance(lx);
+                    lx->state=STATE_QUOTE_ESCAPED;
+                    break;
+                }
+
+                lexeme[idx]='\0';
+                if (idx==1) {
+                    setToken(&token, TOKEN_CHARCON, lexeme);
+                }
+                else {
+                    setToken(&token, TOKEN_STRING, lexeme);
+                }
+                RETURN_TOKEN();
+
+            case STATE_QUOTE_ESCAPED:
+                if (idx==1 && (lx->eof || isQuoteBoundaryChar(lx->current))) {
+                    lexeme[idx]='\0';
+                    setToken(&token, TOKEN_CHARCON, lexeme);
+                    RETURN_TOKEN();
+                }
+                lx->state=STATE_QUOTE;
                 break;
 
             case STATE_COLON:
@@ -1001,8 +1073,7 @@ Token getToken(Lexer *lx) {
                 else {
                     setToken(&token, TOKEN_COLON, ":");
                 }
-                lx->state=STATE_DONE;
-                break;
+                RETURN_TOKEN();
 
             case STATE_LT:
                 if (!lx->eof && lx->current=='=') {
@@ -1016,8 +1087,7 @@ Token getToken(Lexer *lx) {
                 else {
                     setToken(&token, TOKEN_LSS, "<");
                 }
-                lx->state=STATE_DONE;
-                break;
+                RETURN_TOKEN();
 
             case STATE_GT:
                 if (!lx->eof && lx->current=='=') {
@@ -1027,44 +1097,42 @@ Token getToken(Lexer *lx) {
                 else {
                     setToken(&token, TOKEN_GTR, ">");
                 }
-                lx->state=STATE_DONE;
-                break;
+                RETURN_TOKEN();
 
             case STATE_EQUAL:
                 if (!lx->eof && lx->current=='=') {
                     lexerAdvance(lx);
                     setToken(&token, TOKEN_EQL, "==");
-                    lx->state=STATE_DONE;
                 }
                 else {
                     setUnknownToken(&token, "Invalid '='");
-                    lx->state=STATE_UNKNOWN;
                 }
-                break;
-
+                RETURN_TOKEN();
             case STATE_PERIOD:
                 if (!lx->eof && isDigitChar(lx->current)) {
                     appendChar(lexeme, &idx, '.');
-
-                    while (!lx->eof && isDigitChar(lx->current)) {
-                        appendChar(lexeme, &idx, lx->current);
-                        lexerAdvance(lx);
-                    }
-
-                    if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
-                        lx->state=STATE_INVALID_EXPONENT;
-                        break;
-                    }
-
-                    lexeme[idx]='\0';
-                    setUnknownToken(&token, lexeme);
-                    lx->state=STATE_UNKNOWN;
+                    lx->state=STATE_LEADING_DOT_NUMBER;
+                    break;
                 }
-                else {
-                    setToken(&token, TOKEN_PERIOD, ".");
-                    lx->state=STATE_DONE;
+
+                setToken(&token, TOKEN_PERIOD, ".");
+                RETURN_TOKEN();
+
+            case STATE_LEADING_DOT_NUMBER:
+                if (!lx->eof && isDigitChar(lx->current)) {
+                    appendChar(lexeme, &idx, lx->current);
+                    lexerAdvance(lx);
+                    break;
                 }
-                break;
+
+                if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
+                    lx->state=STATE_INVALID_EXPONENT;
+                    break;
+                }
+
+                lexeme[idx]='\0';
+                setUnknownToken(&token, lexeme);
+                RETURN_TOKEN();
 
             case STATE_BRACKET:
                 if (!lx->eof && lx->current=='*') {
@@ -1073,33 +1141,31 @@ Token getToken(Lexer *lx) {
                 }
                 else {
                     setToken(&token, TOKEN_LPARENT, "(");
-                    lx->state=STATE_DONE;
+                    RETURN_TOKEN();
                 }
                 break;
 
             case STATE_COMMENT_BRACE:
-                while (!lx->eof && lx->current!='}') {
-                    appendChar(lexeme, &idx, lx->current);
-                    lexerAdvance(lx);
-                }
-
                 if (lx->eof) {
                     setUnknownToken(&token, "Invalid comment");
-                    lx->state=STATE_UNKNOWN;
-                    break;
+                    RETURN_TOKEN();
                 }
 
+                if (lx->current=='}') {
+                    lexerAdvance(lx);
+                    lexeme[idx]='\0';
+                    setToken(&token, TOKEN_COMMENT, lexeme);
+                    RETURN_TOKEN();
+                }
+
+                appendChar(lexeme, &idx, lx->current);
                 lexerAdvance(lx);
-                lexeme[idx]='\0';
-                setToken(&token, TOKEN_COMMENT, lexeme);
-                lx->state=STATE_DONE;
                 break;
 
             case STATE_COMMENT_PAREN:
                 if (lx->eof) {
                     setUnknownToken(&token, "Invalid comment");
-                    lx->state=STATE_UNKNOWN;
-                    break;
+                    RETURN_TOKEN();
                 }
 
                 if (lx->current=='*') {
@@ -1115,39 +1181,36 @@ Token getToken(Lexer *lx) {
             case STATE_COMMENT_PAREN_NEAREND:
                 if (lx->eof) {
                     setUnknownToken(&token, "Invalid comment");
-                    lx->state=STATE_UNKNOWN;
+                    RETURN_TOKEN();
                 }
-                else if (lx->current==')') {
+
+                if (lx->current==')') {
                     lexerAdvance(lx);
                     lexeme[idx]='\0';
                     setToken(&token, TOKEN_COMMENT, lexeme);
-                    lx->state=STATE_DONE;
+                    RETURN_TOKEN();
                 }
-                else if (lx->current!='\0') {
-                    appendChar(lexeme, &idx, '*');
-                    lx->state=STATE_COMMENT_PAREN;
-                }
-                else {
-                    setUnknownToken(&token, "Invalid comment");
-                    lx->state=STATE_UNKNOWN;
-                }
-                break;
 
-            case STATE_DONE:
+                if (lx->current=='\0') {
+                    setUnknownToken(&token, "Invalid comment");
+                    RETURN_TOKEN();
+                }
+
+                appendChar(lexeme, &idx, '*');
+                lx->state=STATE_COMMENT_PAREN;
                 break;
 
             case STATE_UNKNOWN:
-                break;
+                setUnknownToken(&token, "Unknown");
+                RETURN_TOKEN();
 
             default:
                 setUnknownToken(&token, "Unknown");
-                lx->state=STATE_UNKNOWN;
-                break;
+                RETURN_TOKEN();
         }
     }
-
-    return token;
 }
 
-
+#undef RETURN_TOKEN
+#undef RETURN_TOKEN_KEEP_STATE
 

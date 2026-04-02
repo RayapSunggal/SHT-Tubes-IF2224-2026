@@ -17,10 +17,14 @@ typedef enum {
     STATE_EQUAL,
     STATE_BRACKET,
     STATE_PERIOD,
+    STATE_PENDING_PERIOD,
     STATE_COMMENT_BRACE,
     STATE_COMMENT_PAREN,
     STATE_COMMENT_PAREN_NEAREND,
-    STATE_DONE,
+    STATE_NUMBER_DOT,
+    STATE_LEADING_DOT_NUMBER,
+    STATE_QUOTE_AFTER_QUOTE,
+    STATE_QUOTE_ESCAPED,
 
     STATE_C,
     STATE_CO,
@@ -70,6 +74,8 @@ typedef enum {
     STATE_PROGRAM,
 
     STATE_A,
+    STATE_AN,
+    STATE_AND,
     STATE_AR,
     STATE_ARR,
     STATE_ARRA,
@@ -95,6 +101,14 @@ typedef enum {
     STATE_I,
     STATE_IF,
 
+    STATE_N,
+    STATE_NO,
+    STATE_NOT,
+
+    STATE_M,
+    STATE_MO,
+    STATE_MOD,
+
     STATE_W,
     STATE_WH,
     STATE_WHI,
@@ -116,9 +130,12 @@ typedef enum {
 
     STATE_O,
     STATE_OF,
+    STATE_OR,
 
     STATE_D,
     STATE_DO,
+    STATE_DI,
+    STATE_DIV,
     STATE_DOW,
     STATE_DOWN,
     STATE_DOWNT,
@@ -135,8 +152,6 @@ typedef struct {
     bool ready;
     bool eof;
     char current;
-
-    int pendingPeriods;
     LexerState state;
 } Lexer;
 
@@ -145,5 +160,10 @@ void closeLexer(Lexer *lx);
 Token getToken(Lexer *lx);
 
 #endif
+
+
+
+
+
 
 
