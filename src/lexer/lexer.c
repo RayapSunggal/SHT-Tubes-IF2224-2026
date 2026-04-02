@@ -1060,9 +1060,14 @@ Token getToken(Lexer *lx) {
                 RETURN_TOKEN();
 
             case STATE_QUOTE_ESCAPED:
-                if (idx==1 && (lx->eof || isQuoteBoundaryChar(lx->current))) {
+                if (lx->eof || isQuoteBoundaryChar(lx->current)) {
                     lexeme[idx]='\0';
-                    setToken(&token, TOKEN_CHARCON, lexeme);
+                    if (idx==1) {
+                        setToken(&token, TOKEN_CHARCON, lexeme);
+                    }
+                    else {
+                        setToken(&token, TOKEN_STRING, lexeme);
+                    }
                     RETURN_TOKEN();
                 }
                 lx->state=STATE_QUOTE;
@@ -1216,6 +1221,7 @@ Token getToken(Lexer *lx) {
 
 #undef RETURN_TOKEN
 #undef RETURN_TOKEN_KEEP_STATE
+
 
 
 
