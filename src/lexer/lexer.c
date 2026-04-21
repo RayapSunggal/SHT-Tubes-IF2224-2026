@@ -46,8 +46,12 @@ static bool isIdentifierPart(char c) {
     return isLetter(c) || isDigitChar(c);
 }
 
+static bool isDefaultSeparatorChar(char c) {
+    return c=='\0' || isspace((unsigned char)c);
+}
+
 static bool isQuoteBoundaryChar(char c) {
-    if (c=='\0' || isspace((unsigned char)c)) {
+    if (isDefaultSeparatorChar(c)) {
         return true;
     }
 
@@ -78,10 +82,6 @@ static bool isQuoteBoundaryChar(char c) {
 
 static char lowerChar(char c) {
     return (char)tolower((unsigned char)c);
-}
-static TokenType resolveIdentifierType(const char *lexeme) {
-    (void)lexeme;
-    return TOKEN_IDENT;
 }
 
 static void syncWithMachine(Lexer *lx) {
@@ -125,6 +125,13 @@ static void lexerAdvance(Lexer *lx) {
 
     ADV();
     syncWithMachine(lx);
+}
+
+static void consumeUntilDefaultSeparator(Lexer *lx, char *lexeme, int *idx) {
+    while (!lx->eof && !isDefaultSeparatorChar(lx->current)) {
+        appendChar(lexeme, idx, lx->current);
+        lexerAdvance(lx);
+    }
 }
 
 static bool currentIs(Lexer *lx, char expectedLower) {
@@ -222,6 +229,19 @@ Token getToken(Lexer *lx) {
     for (;;) {
         switch (lx->state) {
             case STATE_PENDING_PERIOD:
+                if (!lx->eof && lx->current=='.') {
+                    lx->state=STATE_SECOND_PERIOD;
+                }
+                else {
+                    lx->state=STATE_START;
+                }
+                setToken(&token, TOKEN_PERIOD, ".");
+                RETURN_TOKEN();
+
+            case STATE_SECOND_PERIOD:
+                if (!lx->eof && lx->current=='.') {
+                    lexerAdvance(lx);
+                }
                 lx->state=STATE_START;
                 setToken(&token, TOKEN_PERIOD, ".");
                 RETURN_TOKEN();
@@ -240,14 +260,14 @@ Token getToken(Lexer *lx) {
                     break;
                 }
 
-                if (isIdentifierStart(lx->current)) { //ciri-ciri identifier
+                if (isIdentifierStart(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                     lx->state=initialKeywordState(lexeme[0]);
                     break;
                 }
 
-                if (isDigitChar(lx->current)) { //ciri-ciri kalau angka
+                if (isDigitChar(lx->current)) {
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                     lx->state=STATE_NUMBER;
@@ -290,7 +310,7 @@ Token getToken(Lexer *lx) {
                     break;
                 }
 
-                if (lx->current=='(') { //ciri ciri komen atau kurung saja
+                if (lx->current=='(') {
                     lexerAdvance(lx);
                     lx->state=STATE_BRACKET;
                     break;
@@ -367,7 +387,7 @@ Token getToken(Lexer *lx) {
                 }
 
                 lexeme[idx]='\0';
-                setToken(&token, resolveIdentifierType(lexeme), lexeme);
+                setToken(&token, TOKEN_IDENT, lexeme);
                 RETURN_TOKEN();
 
             case STATE_NUMBER:
@@ -397,6 +417,16 @@ Token getToken(Lexer *lx) {
                     appendChar(lexeme, &idx, '.');
                     lx->state=STATE_REAL;
                     break;
+                }
+
+                if (!lx->eof &&
+                    !isDefaultSeparatorChar(lx->current) &&
+                    lx->current!='.') {
+                    appendChar(lexeme, &idx, '.');
+                    consumeUntilDefaultSeparator(lx, lexeme, &idx);
+                    lexeme[idx]='\0';
+                    setUnknownToken(&token, lexeme);
+                    RETURN_TOKEN();
                 }
 
                 lx->state=STATE_PENDING_PERIOD;
@@ -449,12 +479,7 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_INVALID_EXPONENT_BODY:
-                if (!lx->eof && isIdentifierPart(lx->current)) {
-                    appendChar(lexeme, &idx, lx->current);
-                    lexerAdvance(lx);
-                    break;
-                }
-
+                consumeUntilDefaultSeparator(lx, lexeme, &idx);
                 lexeme[idx]='\0';
                 setUnknownToken(&token, lexeme);
                 RETURN_TOKEN();
@@ -1117,12 +1142,6 @@ Token getToken(Lexer *lx) {
                 }
                 RETURN_TOKEN();
             case STATE_PERIOD:
-                if (!lx->eof && isDigitChar(lx->current)) {
-                    appendChar(lexeme, &idx, '.');
-                    lx->state=STATE_LEADING_DOT_NUMBER;
-                    break;
-                }
-
                 setToken(&token, TOKEN_PERIOD, ".");
                 RETURN_TOKEN();
 
@@ -1136,6 +1155,10 @@ Token getToken(Lexer *lx) {
                 if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
                     lx->state=STATE_INVALID_EXPONENT;
                     break;
+                }
+
+                if (!lx->eof && !isDefaultSeparatorChar(lx->current)) {
+                    consumeUntilDefaultSeparator(lx, lexeme, &idx);
                 }
 
                 lexeme[idx]='\0';
@@ -1221,8 +1244,4 @@ Token getToken(Lexer *lx) {
 
 #undef RETURN_TOKEN
 #undef RETURN_TOKEN_KEEP_STATE
-
-
-
-
 
