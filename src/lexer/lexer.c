@@ -256,7 +256,6 @@ Token getToken(Lexer *lx) {
                 }
 
                 if (isspace((unsigned char)lx->current)) {
-                    lexerAdvance(lx); //skip baca spasi
                     break;
                 }
 
