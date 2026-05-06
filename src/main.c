@@ -77,22 +77,31 @@ static bool promptOutputPath(char *outputPath, size_t outputPathSize) {
 }
 
 static bool promptSyntaxPaths(char *inputPath, size_t inputPathSize, char *outputPath, size_t outputPathSize) {
+    bool validInput;
     char inputName[NAME_MAX_LEN];
 
-    printf("Masukkan nama file input syntax (ketik 'back' untuk kembali): ");
-    if (scanf("%255s", inputName)!=1) {
-        clearInputBuffer();
-        return false;
-    }
+    do {
+        validInput=false;
+        printf("Masukkan nama file input syntax (ketik 'back' untuk kembali): ");
+        if (scanf("%255s", inputName)!=1) {
+            clearInputBuffer();
+            return false;
+        }
 
-    if (strcmp(inputName, "back")==0) {
-        return false;
-    }
+        if (strcmp(inputName, "back")==0) {
+            return false;
+        }
 
-    if (!buildPathFromName(SYNTAX_INPUT_DIR, inputName, inputPath, inputPathSize)) {
-        fprintf(stderr, "Nama file input tidak valid.\n\n");
-        return false;
-    }
+        if (!buildPathFromName(SYNTAX_INPUT_DIR, inputName, inputPath, inputPathSize)) {
+            fprintf(stderr, "Nama file input tidak valid.\n\n");
+            continue;
+        }
+
+        validInput=fileExists(inputPath);
+        if (!validInput) {
+            fprintf(stderr, "File input tidak ditemukan: %s\n\n", inputPath);
+        }
+    } while (!validInput);
 
     if (!buildPathFromName(SYNTAX_OUTPUT_DIR, inputName, outputPath, outputPathSize)) {
         fprintf(stderr, "Nama file output tidak valid.\n\n");

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "../grammar/grammar.h"
+#include "../lexer/lexer.h"
 #include "../token/token.h"
 
 typedef struct {
@@ -211,185 +212,33 @@ static bool parserAppendToken(Parser *ps, Token *token) {
     return true;
 }
 
-static void parserSetToken(Token *token, TokenType type, const char *lexeme) {
-    size_t len=0;
 
-    token->type=type;
-    if (lexeme!=NULL) {
-        len=strlen(lexeme);
+static bool loadTokensFromLexer(Parser *ps, const char *inputPath) {
+    Lexer lx;
+
+    initLexer(&lx, inputPath);
+    if (!lx.ready) {
+        return parserSetError(ps, "Failed to open source file: %s", inputPath);
     }
 
-    if (len >= MAX_LEXEME) {
-        len=MAX_LEXEME - 1;
-    }
+    while (true) {
+        Token tk=getToken(&lx);
 
-    if (len > 0) {
-        memcpy(token->lexeme, lexeme, len);
-    }
-    token->lexeme[len]='\0';
-}
-
-static void trimInPlace(char *text) {
-    char *start=text;
-    char *end;
-
-    while (*start!='\0' && (*start==' ' || *start=='\t' || *start=='\r' || *start=='\n')) {
-        start++;
-    }
-
-    if (start!=text) {
-        memmove(text, start, strlen(start) + 1);
-    }
-
-    end=text + strlen(text);
-    while (end > text &&
-           (end[-1]==' ' || end[-1]=='\t' || end[-1]=='\r' || end[-1]=='\n')) {
-        end--;
-    }
-    *end='\0';
-}
-
-static bool tokenTypeFromLabel(const char *label, TokenType *outType) {
-    int type;
-
-    if (label==NULL || outType==NULL) {
-        return false;
-    }
-
-    for (type=(int)TOKEN_INTCON; type <= (int)TOKEN_UNKNOWN; type++) {
-        if (strcmp(tokenTypeToString((TokenType)type), label)==0) {
-            *outType=(TokenType)type;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static bool parseTokenLine(
-    Parser *ps,
-    char *line,
-    size_t lineNumber,
-    Token *outToken,
-    bool *shouldSkip
-) {
-    char buffer[3 * MAX_LEXEME];
-    char label[MAX_LEXEME];
-    char lexeme[MAX_LEXEME];
-    char *openParen;
-    char *closeParen;
-    size_t labelLen;
-    TokenType type;
-
-    if (line==NULL || outToken==NULL || shouldSkip==NULL) {
-        return parserSetError(ps, "Invalid token line parser state.");
-    }
-
-    (void)snprintf(buffer, sizeof(buffer), "%s", line);
-    trimInPlace(buffer);
-
-    if (buffer[0]=='\0') {
-        *shouldSkip=true;
-        return true;
-    }
-
-    openParen=strchr(buffer, '(');
-    if (openParen!=NULL) {
-        closeParen=strrchr(buffer, ')');
-        if (closeParen==NULL || closeParen < openParen) {
-            return parserSetError(ps, "Invalid token format at line %zu: %s", lineNumber, buffer);
-        }
-
-        labelLen=(size_t)(openParen - buffer);
-        while (labelLen > 0 && (buffer[labelLen - 1]==' ' || buffer[labelLen - 1]=='\t')) {
-            labelLen--;
-        }
-        if (labelLen==0 || labelLen >= sizeof(label)) {
-            return parserSetError(ps, "Invalid token label at line %zu: %s", lineNumber, buffer);
-        }
-
-        memcpy(label, buffer, labelLen);
-        label[labelLen]='\0';
-
-        {
-            size_t lexemeLen=(size_t)(closeParen - openParen - 1);
-            if (lexemeLen >= sizeof(lexeme)) {
-                lexemeLen=sizeof(lexeme) - 1;
-            }
-            memcpy(lexeme, openParen + 1, lexemeLen);
-            lexeme[lexemeLen]='\0';
-        }
-    }
-    else {
-        size_t rawLen=strlen(buffer);
-        if (rawLen >= sizeof(label)) {
-            rawLen=sizeof(label) - 1;
-        }
-        memcpy(label, buffer, rawLen);
-        label[rawLen]='\0';
-        lexeme[0]='\0';
-    }
-
-    trimInPlace(label);
-    if (!tokenTypeFromLabel(label, &type)) {
-        return parserSetError(ps, "Unknown token label at line %zu: %s", lineNumber, label);
-    }
-
-    *shouldSkip=(type==TOKEN_COMMENT);
-    if (*shouldSkip) {
-        return true;
-    }
-
-    if (lexeme[0]=='\0') {
-        parserSetToken(outToken, type, label);
-    }
-    else {
-        parserSetToken(outToken, type, lexeme);
-    }
-
-    return true;
-}
-
-static bool loadTokensFromFile(Parser *ps, const char *inputPath) {
-    FILE *in;
-    char line[3 * MAX_LEXEME];
-    size_t lineNumber=0;
-
-    in=fopen(inputPath, "r");
-    if (in==NULL) {
-        return parserSetError(ps, "Failed to open token input file: %s", inputPath);
-    }
-
-    while (fgets(line, sizeof(line), in)!=NULL) {
-        Token tk;
-        bool shouldSkip=false;
-
-        lineNumber++;
-        if (!parseTokenLine(ps, line, lineNumber, &tk, &shouldSkip)) {
-            fclose(in);
-            return false;
-        }
-
-        if (shouldSkip) {
+        if (tk.type==TOKEN_COMMENT) {
             continue;
         }
 
         if (!parserAppendToken(ps, &tk)) {
-            fclose(in);
+            closeLexer(&lx);
             return false;
+        }
+
+        if (tk.type==TOKEN_EOF) {
+            break;
         }
     }
 
-    fclose(in);
-
-    if (ps->count==0 || ps->tokens[ps->count - 1].type!=TOKEN_EOF) {
-        Token eofToken;
-        parserSetToken(&eofToken, TOKEN_EOF, "EOF");
-        if (!parserAppendToken(ps, &eofToken)) {
-            return false;
-        }
-    }
-
+    closeLexer(&lx);
     return true;
 }
 
@@ -2562,7 +2411,7 @@ bool analyzeSyntaxFile(const char *inputPath, SyntaxResult *result) {
     parser.hasError=false;
     parser.error[0]='\0';
 
-    if (!loadTokensFromFile(&parser, inputPath)) {
+    if (!loadTokensFromLexer(&parser, inputPath)) {
         (void)snprintf(result->message, sizeof(result->message), "%s", invalidSyntaxMessage);
         parserDestroy(&parser);
         return false;
