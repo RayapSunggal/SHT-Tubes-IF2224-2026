@@ -1,6 +1,8 @@
 #ifndef TOKEN_H
 #define TOKEN_H
 
+#include <stddef.h>
+
 #define MAX_LEXEME 256
 
 typedef enum {
@@ -69,6 +71,8 @@ typedef enum {
 typedef struct {
     TokenType type;
     char lexeme[MAX_LEXEME];
+    size_t line;
+    size_t column;
 } Token;
 
 const char *tokenTypeToString(TokenType type);

@@ -14,22 +14,96 @@ typedef struct {
     size_t count;
     size_t capacity;
     size_t pos;
-    bool hasError;
+    bool fatalError;
+    size_t errorCount;
+    size_t errorLength;
     char error[PARSER_MAX_MESSAGE];
 } Parser;
+
+static void describeToken(Token *token, char *buf, size_t bufSize);
+static Token *parserCurrentToken(Parser *ps);
+static void parserRecordSyntaxErrorToken(Parser *ps, Token *token, const char *fmt, ...);
+static void parserRecordSyntaxErrorCurrent(Parser *ps, const char *fmt, ...);
+static bool isStatementStart(TokenType type);
 
 static bool parserSetError(Parser *ps, const char *fmt, ...) {
     va_list args;
 
-    if (ps->hasError) {
-        return false;
-    }
-
-    ps->hasError=true;
+    ps->fatalError=true;
     va_start(args, fmt);
     (void)vsnprintf(ps->error, sizeof(ps->error), fmt, args);
     va_end(args);
+    ps->errorLength=strlen(ps->error);
     return false;
+}
+
+static void parserAppendErrorText(Parser *ps, const char *text) {
+    size_t available;
+    size_t textLen;
+
+    if (ps->fatalError || text==NULL || ps->errorLength >= sizeof(ps->error) - 1) {
+        return;
+    }
+
+    available=sizeof(ps->error) - 1 - ps->errorLength;
+    textLen=strlen(text);
+    if (textLen > available) {
+        textLen=available;
+    }
+
+    memcpy(ps->error + ps->errorLength, text, textLen);
+    ps->errorLength += textLen;
+    ps->error[ps->errorLength]='\0';
+}
+
+static void parserRecordSyntaxErrorV(Parser *ps, Token *token, const char *fmt, va_list args) {
+    char detail[256];
+    char found[96];
+    char line[512];
+
+    if (ps->fatalError) {
+        return;
+    }
+
+    (void)vsnprintf(detail, sizeof(detail), fmt, args);
+
+    if (ps->errorCount > 0) {
+        parserAppendErrorText(ps, "\n");
+    }
+
+    if (token==NULL) {
+        (void)snprintf(line, sizeof(line), "Line ?: %s", detail);
+    }
+    else {
+        describeToken(token, found, sizeof(found));
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "Line %zu near %s: %s",
+            token->line,
+            found,
+            detail
+        );
+    }
+
+    parserAppendErrorText(ps, line);
+    ps->errorCount++;
+}
+
+static void parserRecordSyntaxErrorToken(Parser *ps, Token *token, const char *fmt, ...) {
+    va_list args;
+
+    va_start(args, fmt);
+    parserRecordSyntaxErrorV(ps, token, fmt, args);
+    va_end(args);
+}
+
+static void parserRecordSyntaxErrorCurrent(Parser *ps, const char *fmt, ...) {
+    va_list args;
+
+    va_start(args, fmt);
+    parserRecordSyntaxErrorV(ps, parserCurrentToken(ps), fmt, args);
+    va_end(args);
 }
 
 static bool tokenHasPrintableLexeme(TokenType type) {
@@ -100,6 +174,149 @@ static TokenType parserPeekType(Parser *ps, size_t lookahead) {
 static void parserAdvance(Parser *ps) {
     if (ps->pos < ps->count) {
         ps->pos++;
+    }
+}
+
+static bool isConstantStart(TokenType type) {
+    switch (type) {
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+        case TOKEN_IDENT:
+        case TOKEN_INTCON:
+        case TOKEN_REALCON:
+        case TOKEN_CHARCON:
+        case TOKEN_STRING:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool isExpressionStart(TokenType type) {
+    return isConstantStart(type) ||
+           type==TOKEN_LPARENT ||
+           type==TOKEN_NOTSY;
+}
+
+static bool isTypeStart(TokenType type) {
+    return type==TOKEN_ARRAYSY ||
+           type==TOKEN_RECORDSY ||
+           type==TOKEN_LPARENT ||
+           type==TOKEN_LBRACK ||
+           type==TOKEN_IDENT ||
+           isExpressionStart(type);
+}
+
+static bool isDeclarationStart(TokenType type) {
+    switch (type) {
+        case TOKEN_CONSTSY:
+        case TOKEN_TYPESY:
+        case TOKEN_VARSY:
+        case TOKEN_PROCEDURESY:
+        case TOKEN_FUNCTIONSY:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool isStatementListTerminator(TokenType type) {
+    return type==TOKEN_ENDSY ||
+           type==TOKEN_UNTILSY ||
+           type==TOKEN_ELSESY ||
+           type==TOKEN_EOF;
+}
+
+static void parserSkipUntilStatementBoundary(Parser *ps) {
+    while (parserCurrentType(ps)!=TOKEN_EOF &&
+           !isStatementListTerminator(parserCurrentType(ps)) &&
+           parserCurrentType(ps)!=TOKEN_SEMICOLON &&
+           !isStatementStart(parserCurrentType(ps))) {
+        parserAdvance(ps);
+    }
+}
+
+static void parserSkipUntilExpressionBoundary(Parser *ps) {
+    while (parserCurrentType(ps)!=TOKEN_EOF &&
+           parserCurrentType(ps)!=TOKEN_SEMICOLON &&
+           parserCurrentType(ps)!=TOKEN_COMMA &&
+           parserCurrentType(ps)!=TOKEN_RPARENT &&
+           parserCurrentType(ps)!=TOKEN_RBRACK &&
+           parserCurrentType(ps)!=TOKEN_COLON &&
+           parserCurrentType(ps)!=TOKEN_THENSY &&
+           parserCurrentType(ps)!=TOKEN_DOSY &&
+           parserCurrentType(ps)!=TOKEN_TOSY &&
+           parserCurrentType(ps)!=TOKEN_DOWNTOSY &&
+           parserCurrentType(ps)!=TOKEN_OFSY &&
+           !isStatementListTerminator(parserCurrentType(ps)) &&
+           parserCurrentType(ps)!=TOKEN_PERIOD) {
+        parserAdvance(ps);
+    }
+}
+
+static void parserSkipUntilTypeBoundary(Parser *ps) {
+    while (parserCurrentType(ps)!=TOKEN_EOF &&
+           parserCurrentType(ps)!=TOKEN_SEMICOLON &&
+           parserCurrentType(ps)!=TOKEN_COMMA &&
+           parserCurrentType(ps)!=TOKEN_RPARENT &&
+           parserCurrentType(ps)!=TOKEN_RBRACK &&
+           parserCurrentType(ps)!=TOKEN_OFSY &&
+           parserCurrentType(ps)!=TOKEN_ENDSY &&
+           !isDeclarationStart(parserCurrentType(ps)) &&
+           parserCurrentType(ps)!=TOKEN_BEGINSY) {
+        parserAdvance(ps);
+    }
+}
+
+static bool parserShouldInsertMissingToken(Parser *ps, TokenType expected) {
+    TokenType current=parserCurrentType(ps);
+
+    switch (expected) {
+        case TOKEN_SEMICOLON:
+            return current==TOKEN_EOF ||
+                   isStatementListTerminator(current) ||
+                   isStatementStart(current) ||
+                   current==TOKEN_IDENT ||
+                   isDeclarationStart(current);
+        case TOKEN_COLON:
+            return current==TOKEN_EOF ||
+                   isTypeStart(current) ||
+                   isStatementStart(current);
+        case TOKEN_EQL:
+            return current==TOKEN_EOF ||
+                   isTypeStart(current) ||
+                   isConstantStart(current);
+        case TOKEN_BECOMES:
+            return current==TOKEN_EOF ||
+                   isExpressionStart(current);
+        case TOKEN_THENSY:
+        case TOKEN_DOSY:
+            return current==TOKEN_EOF ||
+                   isStatementStart(current);
+        case TOKEN_RPARENT:
+            return current==TOKEN_EOF ||
+                   parserCurrentType(ps)==TOKEN_SEMICOLON ||
+                   parserCurrentType(ps)==TOKEN_COMMA ||
+                   parserCurrentType(ps)==TOKEN_COLON ||
+                   parserCurrentType(ps)==TOKEN_THENSY ||
+                   parserCurrentType(ps)==TOKEN_DOSY ||
+                   parserCurrentType(ps)==TOKEN_TOSY ||
+                   parserCurrentType(ps)==TOKEN_DOWNTOSY ||
+                   isStatementListTerminator(current);
+        case TOKEN_RBRACK:
+            return current==TOKEN_EOF ||
+                   parserCurrentType(ps)==TOKEN_OFSY ||
+                   parserCurrentType(ps)==TOKEN_SEMICOLON ||
+                   parserCurrentType(ps)==TOKEN_COMMA;
+        case TOKEN_ENDSY:
+            return current==TOKEN_EOF ||
+                   current==TOKEN_PERIOD ||
+                   current==TOKEN_SEMICOLON ||
+                   isStatementListTerminator(current);
+        case TOKEN_PERIOD:
+            return current==TOKEN_EOF;
+        default:
+            return current==TOKEN_EOF;
     }
 }
 
@@ -176,12 +393,39 @@ static bool parserExpectToken(Parser *ps, TokenType expected, ParseTreeNode *par
         (void)snprintf(found, sizeof(found), "eof");
     }
 
-    return parserSetError(
+    parserRecordSyntaxErrorToken(
         ps,
+        token,
         "Expected %s, found %s.",
         tokenTypeToString(expected),
         found
     );
+
+    if (parserShouldInsertMissingToken(ps, expected)) {
+        (void)parent;
+        return true;
+    }
+
+    if (parserCurrentType(ps)!=TOKEN_EOF) {
+        parserAdvance(ps);
+    }
+
+    if (parserCurrentType(ps)==expected) {
+        if (parent!=NULL) {
+            ParseTreeNode *leaf=parserCreateTokenNode(ps, parserCurrentToken(ps));
+            if (leaf==NULL) {
+                return false;
+            }
+
+            if (!parserAttachChild(ps, parent, leaf)) {
+                return false;
+            }
+        }
+
+        parserAdvance(ps);
+    }
+
+    return true;
 }
 
 static bool parserAcceptToken(Parser *ps, TokenType accepted, ParseTreeNode *parent) {
@@ -228,6 +472,11 @@ static bool loadTokensFromLexer(Parser *ps, const char *inputPath) {
             continue;
         }
 
+        if (tk.type==TOKEN_UNKNOWN) {
+            parserRecordSyntaxErrorToken(ps, &tk, "Invalid token.");
+            continue;
+        }
+
         if (!parserAppendToken(ps, &tk)) {
             closeLexer(&lx);
             return false;
@@ -248,7 +497,9 @@ static void parserDestroy(Parser *ps) {
     ps->count=0;
     ps->capacity=0;
     ps->pos=0;
-    ps->hasError=false;
+    ps->fatalError=false;
+    ps->errorCount=0;
+    ps->errorLength=0;
     ps->error[0]='\0';
 }
 
@@ -471,9 +722,11 @@ static ParseTreeNode *parseConstant(Parser *ps) {
         return node;
     }
 
-    parseTreeFree(node);
-    parserSetError(ps, "Expected constant, found %s.", tokenTypeToString(type));
-    return NULL;
+    parserRecordSyntaxErrorCurrent(ps, "Expected constant.");
+    if (!isConstantStart(parserCurrentType(ps))) {
+        parserSkipUntilExpressionBoundary(ps);
+    }
+    return node;
 }
 
 static ParseTreeNode *parseConstDeclaration(Parser *ps) {
@@ -489,9 +742,9 @@ static ParseTreeNode *parseConstDeclaration(Parser *ps) {
     }
 
     if (parserCurrentType(ps)!=TOKEN_IDENT) {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected ident after constsy.");
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected identifier after constsy.");
+        parserSkipUntilTypeBoundary(ps);
+        return node;
     }
 
     while (parserCurrentType(ps)==TOKEN_IDENT) {
@@ -588,9 +841,9 @@ static ParseTreeNode *parseEnumerated(Parser *ps) {
         closeType=TOKEN_RBRACK;
     }
     else {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected enumerated type.");
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected enumerated type.");
+        parserSkipUntilTypeBoundary(ps);
+        return node;
     }
 
     if (!parserExpectToken(ps, openType, node) ||
@@ -657,18 +910,37 @@ static ParseTreeNode *parseFieldList(Parser *ps) {
         return NULL;
     }
 
-    while (parserCurrentType(ps)==TOKEN_SEMICOLON) {
-        if (parserPeekType(ps, 1)==TOKEN_ENDSY) {
-            if (!parserExpectToken(ps, TOKEN_SEMICOLON, NULL)) {
+    while (parserCurrentType(ps)!=TOKEN_ENDSY && parserCurrentType(ps)!=TOKEN_EOF) {
+        if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+            if (parserPeekType(ps, 1)==TOKEN_ENDSY) {
+                if (!parserExpectToken(ps, TOKEN_SEMICOLON, NULL)) {
+                    parseTreeFree(node);
+                    return NULL;
+                }
+                break;
+            }
+
+            if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
                 parseTreeFree(node);
                 return NULL;
             }
-            break;
+        }
+        else if (parserCurrentType(ps)==TOKEN_IDENT) {
+            parserRecordSyntaxErrorCurrent(ps, "Expected semicolon before next field declaration.");
+        }
+        else {
+            parserRecordSyntaxErrorCurrent(ps, "Unexpected token in record field list.");
+            parserSkipUntilTypeBoundary(ps);
+            if (parserCurrentType(ps)==TOKEN_ENDSY || parserCurrentType(ps)==TOKEN_EOF) {
+                break;
+            }
+            if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+                continue;
+            }
         }
 
-        if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
-            parseTreeFree(node);
-            return NULL;
+        if (parserCurrentType(ps)!=TOKEN_IDENT) {
+            continue;
         }
 
         fieldPart=parseFieldPart(ps);
@@ -784,9 +1056,9 @@ static ParseTreeNode *parseType(Parser *ps) {
         return node;
     }
     else {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected type, found %s.", tokenTypeToString(current));
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected type.");
+        parserSkipUntilTypeBoundary(ps);
+        return node;
     }
 
     if (child==NULL || !parserAttachChild(ps, node, child)) {
@@ -810,9 +1082,9 @@ static ParseTreeNode *parseTypeDeclaration(Parser *ps) {
     }
 
     if (parserCurrentType(ps)!=TOKEN_IDENT) {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected ident after typesy.");
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected identifier after typesy.");
+        parserSkipUntilTypeBoundary(ps);
+        return node;
     }
 
     while (parserCurrentType(ps)==TOKEN_IDENT) {
@@ -852,9 +1124,9 @@ static ParseTreeNode *parseVarDeclaration(Parser *ps) {
     }
 
     if (parserCurrentType(ps)!=TOKEN_IDENT) {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected ident after varsy.");
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected identifier after varsy.");
+        parserSkipUntilTypeBoundary(ps);
+        return node;
     }
 
     while (parserCurrentType(ps)==TOKEN_IDENT) {
@@ -943,7 +1215,31 @@ static ParseTreeNode *parseFormalParameterList(Parser *ps) {
         return NULL;
     }
 
-    while (parserAcceptToken(ps, TOKEN_SEMICOLON, node)) {
+    while (parserCurrentType(ps)!=TOKEN_RPARENT && parserCurrentType(ps)!=TOKEN_EOF) {
+        if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+            if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+        }
+        else if (parserCurrentType(ps)==TOKEN_IDENT) {
+            parserRecordSyntaxErrorCurrent(ps, "Expected semicolon before next parameter group.");
+        }
+        else {
+            parserRecordSyntaxErrorCurrent(ps, "Unexpected token in parameter list.");
+            parserSkipUntilTypeBoundary(ps);
+            if (parserCurrentType(ps)==TOKEN_RPARENT || parserCurrentType(ps)==TOKEN_EOF) {
+                break;
+            }
+            if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+                continue;
+            }
+        }
+
+        if (parserCurrentType(ps)!=TOKEN_IDENT) {
+            continue;
+        }
+
         parameterGroup=parseParameterGroup(ps);
         if (parameterGroup==NULL || !parserAttachChild(ps, node, parameterGroup)) {
             parseTreeFree(node);
@@ -1084,9 +1380,9 @@ static ParseTreeNode *parseSubprogramDeclaration(Parser *ps) {
         child=parseFunctionDeclaration(ps);
     }
     else {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected subprogram declaration.");
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected subprogram declaration.");
+        parserSkipUntilStatementBoundary(ps);
+        return node;
     }
 
     if (child==NULL || !parserAttachChild(ps, node, child)) {
@@ -1245,9 +1541,11 @@ static ParseTreeNode *parseFactor(Parser *ps) {
             return node;
         }
         default:
-            parseTreeFree(node);
-            parserSetError(ps, "Expected factor, found %s.", tokenTypeToString(current));
-            return NULL;
+            parserRecordSyntaxErrorCurrent(ps, "Expected factor.");
+            if (!isExpressionStart(parserCurrentType(ps))) {
+                parserSkipUntilExpressionBoundary(ps);
+            }
+            return node;
     }
 }
 
@@ -1391,7 +1689,20 @@ static ParseTreeNode *parseParameterList(Parser *ps) {
         return NULL;
     }
 
-    while (parserAcceptToken(ps, TOKEN_COMMA, node)) {
+    while (parserCurrentType(ps)!=TOKEN_RPARENT && parserCurrentType(ps)!=TOKEN_EOF) {
+        if (parserCurrentType(ps)==TOKEN_COMMA) {
+            if (!parserExpectToken(ps, TOKEN_COMMA, node)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+        }
+        else if (isExpressionStart(parserCurrentType(ps))) {
+            parserRecordSyntaxErrorCurrent(ps, "Expected comma before next parameter.");
+        }
+        else {
+            break;
+        }
+
         exprNode=parseExpression(ps);
         if (exprNode==NULL || !parserAttachChild(ps, node, exprNode)) {
             parseTreeFree(node);
@@ -1535,9 +1846,33 @@ static ParseTreeNode *parseCaseStatement(Parser *ps) {
         return NULL;
     }
 
-    while (parserAcceptToken(ps, TOKEN_SEMICOLON, node)) {
-        if (parserCurrentType(ps)==TOKEN_ENDSY) {
-            break;
+    while (parserCurrentType(ps)!=TOKEN_ENDSY && parserCurrentType(ps)!=TOKEN_EOF) {
+        if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+            if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+
+            if (parserCurrentType(ps)==TOKEN_ENDSY) {
+                break;
+            }
+        }
+        else if (isConstantStart(parserCurrentType(ps))) {
+            parserRecordSyntaxErrorCurrent(ps, "Expected semicolon before next case block.");
+        }
+        else {
+            parserRecordSyntaxErrorCurrent(ps, "Unexpected token in case statement.");
+            parserSkipUntilStatementBoundary(ps);
+            if (parserCurrentType(ps)==TOKEN_ENDSY || parserCurrentType(ps)==TOKEN_EOF) {
+                break;
+            }
+            if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+                continue;
+            }
+        }
+
+        if (!isConstantStart(parserCurrentType(ps))) {
+            continue;
         }
 
         caseBlockNode=parseCaseBlock(ps);
@@ -1658,9 +1993,7 @@ static ParseTreeNode *parseForStatement(Parser *ps) {
         }
     }
     else {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected tosy or downtosy in for-statement.");
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected tosy or downtosy in for-statement.");
     }
 
     exprNode=parseExpression(ps);
@@ -1720,9 +2053,9 @@ static ParseTreeNode *parseStatement(Parser *ps) {
             child=parseCompoundStatement(ps);
             break;
         default:
-            parseTreeFree(node);
-            parserSetError(ps, "Expected statement, found %s.", tokenTypeToString(current));
-            return NULL;
+            parserRecordSyntaxErrorCurrent(ps, "Expected statement.");
+            parserSkipUntilStatementBoundary(ps);
+            return node;
     }
 
     if (child==NULL || !parserAttachChild(ps, node, child)) {
@@ -1742,9 +2075,9 @@ static ParseTreeNode *parseStatementList(Parser *ps) {
     }
 
     if (!isStatementStart(parserCurrentType(ps))) {
-        parseTreeFree(node);
-        parserSetError(ps, "Expected statement-list.");
-        return NULL;
+        parserRecordSyntaxErrorCurrent(ps, "Expected statement-list.");
+        parserSkipUntilStatementBoundary(ps);
+        return node;
     }
 
     stmtNode=parseStatement(ps);
@@ -1753,8 +2086,8 @@ static ParseTreeNode *parseStatementList(Parser *ps) {
         return NULL;
     }
 
-    while (parserCurrentType(ps)==TOKEN_SEMICOLON) {
-        if (!isStatementStart(parserPeekType(ps, 1))) {
+    while (!isStatementListTerminator(parserCurrentType(ps))) {
+        if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
             ParseTreeNode *semicolonParent=NULL;
 
             if (node->childCount > 0) {
@@ -1772,12 +2105,33 @@ static ParseTreeNode *parseStatementList(Parser *ps) {
                 parseTreeFree(node);
                 return NULL;
             }
-            break;
+
+            if (isStatementListTerminator(parserCurrentType(ps))) {
+                break;
+            }
+
+            if (!isStatementStart(parserCurrentType(ps))) {
+                parserRecordSyntaxErrorCurrent(ps, "Expected statement after semicolon.");
+                parserSkipUntilStatementBoundary(ps);
+                continue;
+            }
+        }
+        else if (isStatementStart(parserCurrentType(ps))) {
+            parserRecordSyntaxErrorCurrent(ps, "Expected semicolon before next statement.");
+        }
+        else {
+            parserRecordSyntaxErrorCurrent(ps, "Unexpected token in statement-list.");
+            parserSkipUntilStatementBoundary(ps);
+            if (isStatementListTerminator(parserCurrentType(ps))) {
+                break;
+            }
+            if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+                continue;
+            }
         }
 
-        if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
-            parseTreeFree(node);
-            return NULL;
+        if (!isStatementStart(parserCurrentType(ps))) {
+            continue;
         }
 
         stmtNode=parseStatement(ps);
@@ -2394,7 +2748,6 @@ static bool validateWithGrammar(Parser *ps, ParseTreeNode *root) {
 bool analyzeSyntaxFile(const char *inputPath, SyntaxResult *result) {
     Parser parser;
     ParseTreeNode *root;
-    const char *invalidSyntaxMessage="Invalid syntax";
 
     if (result==NULL || inputPath==NULL) {
         return false;
@@ -2408,25 +2761,57 @@ bool analyzeSyntaxFile(const char *inputPath, SyntaxResult *result) {
     parser.count=0;
     parser.capacity=0;
     parser.pos=0;
-    parser.hasError=false;
+    parser.fatalError=false;
+    parser.errorCount=0;
+    parser.errorLength=0;
     parser.error[0]='\0';
 
     if (!loadTokensFromLexer(&parser, inputPath)) {
-        (void)snprintf(result->message, sizeof(result->message), "%s", invalidSyntaxMessage);
+        (void)snprintf(
+            result->message,
+            sizeof(result->message),
+            "%s",
+            parser.error[0]!='\0' ? parser.error : "Invalid syntax."
+        );
         parserDestroy(&parser);
         return false;
     }
 
     root=parseProgram(&parser);
-    if (root==NULL) {
-        (void)snprintf(result->message, sizeof(result->message), "%s", invalidSyntaxMessage);
+    if (parser.fatalError || root==NULL) {
+        (void)snprintf(
+            result->message,
+            sizeof(result->message),
+            "%s",
+            parser.error[0]!='\0' ? parser.error : "Invalid syntax."
+        );
+        parserDestroy(&parser);
+        return false;
+    }
+
+    if (parser.errorCount > 0) {
+        const char *prefix="Ditemukan error syntax:\n";
+        size_t prefixLen=strlen(prefix);
+
+        parseTreeFree(root);
+        memcpy(result->message, prefix, prefixLen);
+        result->message[prefixLen]='\0';
+        if (prefixLen < sizeof(result->message) - 1) {
+            size_t available=sizeof(result->message) - 1 - prefixLen;
+            (void)strncat(result->message, parser.error, available);
+        }
         parserDestroy(&parser);
         return false;
     }
 
     if (!validateWithGrammar(&parser, root)) {
         parseTreeFree(root);
-        (void)snprintf(result->message, sizeof(result->message), "%s", invalidSyntaxMessage);
+        (void)snprintf(
+            result->message,
+            sizeof(result->message),
+            "%s",
+            parser.error[0]!='\0' ? parser.error : "Invalid syntax."
+        );
         parserDestroy(&parser);
         return false;
     }

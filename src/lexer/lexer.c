@@ -5,10 +5,12 @@
 
 #include "../mesinkarakter/mesinkarakter.h"
 
-static void setToken(Token *t, TokenType type, const char *lexeme) {
+static void setToken(Token *t, TokenType type, const char *lexeme, size_t line, size_t column) {
     size_t n;
 
     t->type=type;
+    t->line=line;
+    t->column=column;
     n=strlen(lexeme);
     if (n >= MAX_LEXEME) {
         n=MAX_LEXEME - 1;
@@ -18,8 +20,8 @@ static void setToken(Token *t, TokenType type, const char *lexeme) {
     t->lexeme[n]='\0';
 }
 
-static void setUnknownToken(Token *t, const char *message) {
-    setToken(t, TOKEN_UNKNOWN, message);
+static void setUnknownToken(Token *t, const char *message, size_t line, size_t column) {
+    setToken(t, TOKEN_UNKNOWN, message, line, column);
 }
 
 static void appendChar(char *buf, int *index, char c) {
@@ -84,6 +86,16 @@ static char lowerChar(char c) {
     return (char)tolower((unsigned char)c);
 }
 
+static void markTokenStart(Lexer *lx) {
+    lx->tokenLine=lx->line;
+    lx->tokenColumn=lx->column;
+}
+
+static void markPreviousCharacterAsTokenStart(Lexer *lx) {
+    lx->tokenLine=lx->line;
+    lx->tokenColumn=lx->column > 1 ? lx->column - 1 : 1;
+}
+
 static void syncWithMachine(Lexer *lx) {
     lx->eof=EOP;
     if (EOP) {
@@ -97,6 +109,10 @@ static void syncWithMachine(Lexer *lx) {
 void initLexer(Lexer *lx, const char *filename) {
     lx->ready=STARTFILE(filename);
     lx->state=STATE_START;
+    lx->line=1;
+    lx->column=1;
+    lx->tokenLine=1;
+    lx->tokenColumn=1;
 
     if (lx->ready) {
         syncWithMachine(lx);
@@ -116,15 +132,30 @@ void closeLexer(Lexer *lx) {
     lx->eof=true;
     lx->current='\0';
     lx->state=STATE_START;
+    lx->line=1;
+    lx->column=1;
+    lx->tokenLine=1;
+    lx->tokenColumn=1;
 }
 
 static void lexerAdvance(Lexer *lx) {
+    char previous;
+
     if (lx->eof) {
         return;
     }
 
+    previous=lx->current;
     ADV();
     syncWithMachine(lx);
+
+    if (previous=='\n') {
+        lx->line++;
+        lx->column=1;
+    }
+    else {
+        lx->column++;
+    }
 }
 
 static void consumeUntilDefaultSeparator(Lexer *lx, char *lexeme, int *idx) {
@@ -203,7 +234,7 @@ static bool finishKeywordOrIdent(
 ) {
     if (lx->eof || !isIdentifierPart(lx->current)) {
         lexeme[idx]='\0';
-        setToken(token, keywordType, lexeme);
+        setToken(token, keywordType, lexeme, lx->tokenLine, lx->tokenColumn);
         return true;
     }
 
@@ -213,6 +244,9 @@ static bool finishKeywordOrIdent(
 
 #define RETURN_TOKEN() do { lx->state=STATE_START; return token; } while (0)
 #define RETURN_TOKEN_KEEP_STATE() do { return token; } while (0)
+#define SET_TOKEN(type_, lexeme_) setToken(&token, (type_), (lexeme_), lx->tokenLine, lx->tokenColumn)
+#define SET_UNKNOWN_TOKEN(message_) setUnknownToken(&token, (message_), lx->tokenLine, lx->tokenColumn)
+#define SET_EOF_TOKEN() setToken(&token, TOKEN_EOF, "EOF", lx->line, lx->column)
 
 Token getToken(Lexer *lx) {
     Token token;
@@ -220,7 +254,7 @@ Token getToken(Lexer *lx) {
     int idx=0;
 
     if (!lx->ready) {
-        setToken(&token, TOKEN_EOF, "EOF");
+        SET_EOF_TOKEN();
         RETURN_TOKEN();
     }
 
@@ -229,13 +263,20 @@ Token getToken(Lexer *lx) {
     for (;;) {
         switch (lx->state) {
             case STATE_PENDING_PERIOD:
-                if (!lx->eof && lx->current=='.') {
-                    lx->state=STATE_SECOND_PERIOD;
+                {
+                    size_t periodLine=lx->tokenLine;
+                    size_t periodColumn=lx->tokenColumn;
+
+                    if (!lx->eof && lx->current=='.') {
+                        lx->state=STATE_SECOND_PERIOD;
+                        markTokenStart(lx);
+                    }
+                    else {
+                        lx->state=STATE_START;
+                    }
+
+                    setToken(&token, TOKEN_PERIOD, ".", periodLine, periodColumn);
                 }
-                else {
-                    lx->state=STATE_START;
-                }
-                setToken(&token, TOKEN_PERIOD, ".");
                 RETURN_TOKEN();
 
             case STATE_SECOND_PERIOD:
@@ -243,7 +284,7 @@ Token getToken(Lexer *lx) {
                     lexerAdvance(lx);
                 }
                 lx->state=STATE_START;
-                setToken(&token, TOKEN_PERIOD, ".");
+                SET_TOKEN(TOKEN_PERIOD, ".");
                 RETURN_TOKEN();
 
             case STATE_START:
@@ -251,7 +292,7 @@ Token getToken(Lexer *lx) {
                 lexeme[0]='\0';
 
                 if (lx->eof) {
-                    setToken(&token, TOKEN_EOF, "EOF");
+                    SET_EOF_TOKEN();
                     RETURN_TOKEN();
                 }
 
@@ -261,6 +302,7 @@ Token getToken(Lexer *lx) {
                 }
 
                 if (isIdentifierStart(lx->current)) {
+                    markTokenStart(lx);
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                     lx->state=initialKeywordState(lexeme[0]);
@@ -268,6 +310,7 @@ Token getToken(Lexer *lx) {
                 }
 
                 if (isDigitChar(lx->current)) {
+                    markTokenStart(lx);
                     appendChar(lexeme, &idx, lx->current);
                     lexerAdvance(lx);
                     lx->state=STATE_NUMBER;
@@ -275,48 +318,56 @@ Token getToken(Lexer *lx) {
                 }
 
                 if (lx->current=='\'') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_QUOTE;
                     break;
                 }
 
                 if (lx->current==':') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_COLON;
                     break;
                 }
 
                 if (lx->current=='<') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_LT;
                     break;
                 }
 
                 if (lx->current=='>') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_GT;
                     break;
                 }
 
                 if (lx->current=='=') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_EQUAL;
                     break;
                 }
 
                 if (lx->current=='{') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_COMMENT_BRACE;
                     break;
                 }
 
                 if (lx->current=='(') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_BRACKET;
                     break;
                 }
 
                 if (lx->current=='.') {
+                    markTokenStart(lx);
                     lexerAdvance(lx);
                     lx->state=STATE_PERIOD;
                     break;
@@ -324,47 +375,57 @@ Token getToken(Lexer *lx) {
 
                 switch (lx->current) {
                     case '+':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_PLUS, "+");
+                        SET_TOKEN(TOKEN_PLUS, "+");
                         RETURN_TOKEN();
                     case '-':
+                        markTokenStart(lx);
                         appendChar(lexeme, &idx, '-');
                         lexerAdvance(lx);
                         lx->state=STATE_MINUS;
                         break;
                     case '*':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_TIMES, "*");
+                        SET_TOKEN(TOKEN_TIMES, "*");
                         RETURN_TOKEN();
                     case '/':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_RDIV, "/");
+                        SET_TOKEN(TOKEN_RDIV, "/");
                         RETURN_TOKEN();
                     case ')':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_RPARENT, ")");
+                        SET_TOKEN(TOKEN_RPARENT, ")");
                         RETURN_TOKEN();
                     case '[':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_LBRACK, "[");
+                        SET_TOKEN(TOKEN_LBRACK, "[");
                         RETURN_TOKEN();
                     case ']':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_RBRACK, "]");
+                        SET_TOKEN(TOKEN_RBRACK, "]");
                         RETURN_TOKEN();
                     case ',':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_COMMA, ",");
+                        SET_TOKEN(TOKEN_COMMA, ",");
                         RETURN_TOKEN();
                     case ';':
+                        markTokenStart(lx);
                         lexerAdvance(lx);
-                        setToken(&token, TOKEN_SEMICOLON, ";");
+                        SET_TOKEN(TOKEN_SEMICOLON, ";");
                         RETURN_TOKEN();
                     default:
+                        markTokenStart(lx);
                         lexeme[0]=lx->current;
                         lexeme[1]='\0';
                         lexerAdvance(lx);
-                        setUnknownToken(&token, lexeme);
+                        SET_UNKNOWN_TOKEN(lexeme);
                         RETURN_TOKEN();
                 }
                 break;
@@ -374,7 +435,7 @@ Token getToken(Lexer *lx) {
                     lx->state=STATE_NUMBER;
                 }
                 else {
-                    setToken(&token, TOKEN_MINUS, "-");
+                    SET_TOKEN(TOKEN_MINUS, "-");
                     RETURN_TOKEN();
                 }
                 break;
@@ -387,7 +448,7 @@ Token getToken(Lexer *lx) {
                 }
 
                 lexeme[idx]='\0';
-                setToken(&token, TOKEN_IDENT, lexeme);
+                SET_TOKEN(TOKEN_IDENT, lexeme);
                 RETURN_TOKEN();
 
             case STATE_NUMBER:
@@ -409,7 +470,7 @@ Token getToken(Lexer *lx) {
                 }
 
                 lexeme[idx]='\0';
-                setToken(&token, TOKEN_INTCON, lexeme);
+                SET_TOKEN(TOKEN_INTCON, lexeme);
                 RETURN_TOKEN();
 
             case STATE_NUMBER_DOT:
@@ -425,13 +486,19 @@ Token getToken(Lexer *lx) {
                     appendChar(lexeme, &idx, '.');
                     consumeUntilDefaultSeparator(lx, lexeme, &idx);
                     lexeme[idx]='\0';
-                    setUnknownToken(&token, lexeme);
+                    SET_UNKNOWN_TOKEN(lexeme);
                     RETURN_TOKEN();
                 }
 
-                lx->state=STATE_PENDING_PERIOD;
-                lexeme[idx]='\0';
-                setToken(&token, TOKEN_INTCON, lexeme);
+                {
+                    size_t numberLine=lx->tokenLine;
+                    size_t numberColumn=lx->tokenColumn;
+
+                    lx->state=STATE_PENDING_PERIOD;
+                    markPreviousCharacterAsTokenStart(lx);
+                    lexeme[idx]='\0';
+                    setToken(&token, TOKEN_INTCON, lexeme, numberLine, numberColumn);
+                }
                 RETURN_TOKEN_KEEP_STATE();
 
             case STATE_REAL:
@@ -442,10 +509,14 @@ Token getToken(Lexer *lx) {
                 }
 
                 if (!lx->eof && lx->current=='.') {
+                    size_t realLine=lx->tokenLine;
+                    size_t realColumn=lx->tokenColumn;
+
                     lexerAdvance(lx);
                     lx->state=STATE_PENDING_PERIOD;
                     lexeme[idx]='\0';
-                    setToken(&token, TOKEN_REALCON, lexeme);
+                    setToken(&token, TOKEN_REALCON, lexeme, realLine, realColumn);
+                    markPreviousCharacterAsTokenStart(lx);
                     RETURN_TOKEN_KEEP_STATE();
                 }
 
@@ -455,13 +526,13 @@ Token getToken(Lexer *lx) {
                 }
 
                 lexeme[idx]='\0';
-                setToken(&token, TOKEN_REALCON, lexeme);
+                SET_TOKEN(TOKEN_REALCON, lexeme);
                 RETURN_TOKEN();
 
             case STATE_INVALID_EXPONENT:
                 if (lx->eof) {
                     lexeme[idx]='\0';
-                    setUnknownToken(&token, lexeme);
+                    SET_UNKNOWN_TOKEN(lexeme);
                     RETURN_TOKEN();
                 }
 
@@ -481,7 +552,7 @@ Token getToken(Lexer *lx) {
             case STATE_INVALID_EXPONENT_BODY:
                 consumeUntilDefaultSeparator(lx, lexeme, &idx);
                 lexeme[idx]='\0';
-                setUnknownToken(&token, lexeme);
+                SET_UNKNOWN_TOKEN(lexeme);
                 RETURN_TOKEN();
 
             case STATE_C:
@@ -1053,7 +1124,7 @@ Token getToken(Lexer *lx) {
 
             case STATE_QUOTE:
                 if (lx->eof || lx->current=='\n' || lx->current=='\r') {
-                    setUnknownToken(&token, "Invalid string");
+                    SET_UNKNOWN_TOKEN("Invalid string");
                     RETURN_TOKEN();
                 }
 
@@ -1077,10 +1148,10 @@ Token getToken(Lexer *lx) {
 
                 lexeme[idx]='\0';
                 if (idx==1) {
-                    setToken(&token, TOKEN_CHARCON, lexeme);
+                    SET_TOKEN(TOKEN_CHARCON, lexeme);
                 }
                 else {
-                    setToken(&token, TOKEN_STRING, lexeme);
+                    SET_TOKEN(TOKEN_STRING, lexeme);
                 }
                 RETURN_TOKEN();
 
@@ -1088,10 +1159,10 @@ Token getToken(Lexer *lx) {
                 if (lx->eof || isQuoteBoundaryChar(lx->current)) {
                     lexeme[idx]='\0';
                     if (idx==1) {
-                        setToken(&token, TOKEN_CHARCON, lexeme);
+                        SET_TOKEN(TOKEN_CHARCON, lexeme);
                     }
                     else {
-                        setToken(&token, TOKEN_STRING, lexeme);
+                        SET_TOKEN(TOKEN_STRING, lexeme);
                     }
                     RETURN_TOKEN();
                 }
@@ -1101,48 +1172,45 @@ Token getToken(Lexer *lx) {
             case STATE_COLON:
                 if (!lx->eof && lx->current=='=') {
                     lexerAdvance(lx);
-                    setToken(&token, TOKEN_BECOMES, ":=");
+                    SET_TOKEN(TOKEN_BECOMES, ":=");
                 }
                 else {
-                    setToken(&token, TOKEN_COLON, ":");
+                    SET_TOKEN(TOKEN_COLON, ":");
                 }
                 RETURN_TOKEN();
 
             case STATE_LT:
                 if (!lx->eof && lx->current=='=') {
                     lexerAdvance(lx);
-                    setToken(&token, TOKEN_LEQ, "<=");
+                    SET_TOKEN(TOKEN_LEQ, "<=");
                 }
                 else if (!lx->eof && lx->current=='>') {
                     lexerAdvance(lx);
-                    setToken(&token, TOKEN_NEQ, "<>");
+                    SET_TOKEN(TOKEN_NEQ, "<>");
                 }
                 else {
-                    setToken(&token, TOKEN_LSS, "<");
+                    SET_TOKEN(TOKEN_LSS, "<");
                 }
                 RETURN_TOKEN();
 
             case STATE_GT:
                 if (!lx->eof && lx->current=='=') {
                     lexerAdvance(lx);
-                    setToken(&token, TOKEN_GEQ, ">=");
+                    SET_TOKEN(TOKEN_GEQ, ">=");
                 }
                 else {
-                    setToken(&token, TOKEN_GTR, ">");
+                    SET_TOKEN(TOKEN_GTR, ">");
                 }
                 RETURN_TOKEN();
 
             case STATE_EQUAL:
                 if (!lx->eof && lx->current=='=') {
                     lexerAdvance(lx);
-                    setToken(&token, TOKEN_EQL, "==");
                 }
-                else {
-                    setUnknownToken(&token, "Invalid '='");
-                }
+                SET_TOKEN(TOKEN_EQL, "=");
                 RETURN_TOKEN();
             case STATE_PERIOD:
-                setToken(&token, TOKEN_PERIOD, ".");
+                SET_TOKEN(TOKEN_PERIOD, ".");
                 RETURN_TOKEN();
 
             case STATE_LEADING_DOT_NUMBER:
@@ -1162,7 +1230,7 @@ Token getToken(Lexer *lx) {
                 }
 
                 lexeme[idx]='\0';
-                setUnknownToken(&token, lexeme);
+                SET_UNKNOWN_TOKEN(lexeme);
                 RETURN_TOKEN();
 
             case STATE_BRACKET:
@@ -1171,21 +1239,21 @@ Token getToken(Lexer *lx) {
                     lx->state=STATE_COMMENT_PAREN;
                 }
                 else {
-                    setToken(&token, TOKEN_LPARENT, "(");
+                    SET_TOKEN(TOKEN_LPARENT, "(");
                     RETURN_TOKEN();
                 }
                 break;
 
             case STATE_COMMENT_BRACE:
                 if (lx->eof) {
-                    setUnknownToken(&token, "Invalid comment");
+                    SET_UNKNOWN_TOKEN("Invalid comment");
                     RETURN_TOKEN();
                 }
 
                 if (lx->current=='}') {
                     lexerAdvance(lx);
                     lexeme[idx]='\0';
-                    setToken(&token, TOKEN_COMMENT, lexeme);
+                    SET_TOKEN(TOKEN_COMMENT, lexeme);
                     RETURN_TOKEN();
                 }
 
@@ -1195,7 +1263,7 @@ Token getToken(Lexer *lx) {
 
             case STATE_COMMENT_PAREN:
                 if (lx->eof) {
-                    setUnknownToken(&token, "Invalid comment");
+                    SET_UNKNOWN_TOKEN("Invalid comment");
                     RETURN_TOKEN();
                 }
 
@@ -1211,19 +1279,19 @@ Token getToken(Lexer *lx) {
 
             case STATE_COMMENT_PAREN_NEAREND:
                 if (lx->eof) {
-                    setUnknownToken(&token, "Invalid comment");
+                    SET_UNKNOWN_TOKEN("Invalid comment");
                     RETURN_TOKEN();
                 }
 
                 if (lx->current==')') {
                     lexerAdvance(lx);
                     lexeme[idx]='\0';
-                    setToken(&token, TOKEN_COMMENT, lexeme);
+                    SET_TOKEN(TOKEN_COMMENT, lexeme);
                     RETURN_TOKEN();
                 }
 
                 if (lx->current=='\0') {
-                    setUnknownToken(&token, "Invalid comment");
+                    SET_UNKNOWN_TOKEN("Invalid comment");
                     RETURN_TOKEN();
                 }
 
@@ -1232,11 +1300,11 @@ Token getToken(Lexer *lx) {
                 break;
 
             case STATE_UNKNOWN:
-                setUnknownToken(&token, "Unknown");
+                SET_UNKNOWN_TOKEN("Unknown");
                 RETURN_TOKEN();
 
             default:
-                setUnknownToken(&token, "Unknown");
+                SET_UNKNOWN_TOKEN("Unknown");
                 RETURN_TOKEN();
         }
     }
@@ -1244,4 +1312,7 @@ Token getToken(Lexer *lx) {
 
 #undef RETURN_TOKEN
 #undef RETURN_TOKEN_KEEP_STATE
+#undef SET_TOKEN
+#undef SET_UNKNOWN_TOKEN
+#undef SET_EOF_TOKEN
 

@@ -5,7 +5,7 @@
 
 #include "../parse_tree/parse_tree.h"
 
-#define PARSER_MAX_MESSAGE 512
+#define PARSER_MAX_MESSAGE 8192
 
 typedef struct {
     bool success;

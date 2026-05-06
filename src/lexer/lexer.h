@@ -155,6 +155,10 @@ typedef struct {
     bool eof;
     char current;
     LexerState state;
+    size_t line;
+    size_t column;
+    size_t tokenLine;
+    size_t tokenColumn;
 } Lexer;
 
 void initLexer(Lexer *lx, const char *filename);

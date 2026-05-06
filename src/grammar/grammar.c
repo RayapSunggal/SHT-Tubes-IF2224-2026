@@ -259,10 +259,16 @@ bool is_enumerated_complete(Node *node) {
 // 13
 bool is_record_type_complete(Node *node) {
     if (!isExactLabel(node, "<record-type>")) return false;
-    if (node->childCount!=3) return false;
-    if (!isExactLabel(node->child[0], "recordsy")) return false;
-    if (!is_field_list_complete(node->child[1])) return false;
-    return isExactLabel(node->child[2], "endsy");
+    if (node->childCount==2) {
+        return isExactLabel(node->child[0], "recordsy") &&
+               isExactLabel(node->child[1], "endsy");
+    }
+    if (node->childCount==3) {
+        if (!isExactLabel(node->child[0], "recordsy")) return false;
+        if (!is_field_list_complete(node->child[1])) return false;
+        return isExactLabel(node->child[2], "endsy");
+    }
+    return false;
 }
 
 // 14
@@ -386,10 +392,16 @@ bool is_parameter_group_complete(Node *node) {
 // 22
 bool is_compound_statement_complete(Node *node) {
     if (!isExactLabel(node, "<compound-statement>")) return false;
-    if (node->childCount!=3) return false;
-    if (!isExactLabel(node->child[0], "beginsy")) return false;
-    if (!is_statement_list_complete(node->child[1])) return false;
-    return isExactLabel(node->child[2], "endsy");
+    if (node->childCount==2) {
+        return isExactLabel(node->child[0], "beginsy") &&
+               isExactLabel(node->child[1], "endsy");
+    }
+    if (node->childCount==3) {
+        if (!isExactLabel(node->child[0], "beginsy")) return false;
+        if (!is_statement_list_complete(node->child[1])) return false;
+        return isExactLabel(node->child[2], "endsy");
+    }
+    return false;
 }
 
 // 23
@@ -405,7 +417,8 @@ bool is_statement_list_complete(Node *node) {
         i += 2;
     }
 
-    return i==node->childCount;
+    return i==node->childCount ||
+           (i==node->childCount - 1 && isExactLabel(node->child[i], "semicolon"));
 }
 
 // 24
@@ -413,6 +426,7 @@ bool is_statement_complete(Node *node) {
     if (!isExactLabel(node, "statement") && !isExactLabel(node, "<statement>")) return false;
     if (node->childCount!=1) return false;
     return is_assignment_statement_complete(node->child[0]) ||
+           is_compound_statement_complete(node->child[0]) ||
            is_if_statement_complete(node->child[0]) ||
            is_case_statement_complete(node->child[0]) ||
            is_while_statement_complete(node->child[0]) ||
@@ -547,6 +561,12 @@ bool is_procedure_function_call_complete(Node *node) {
         return isIdentLabel(node->child[0]);
     }
 
+    if (effectiveChildCount==3) {
+        if (!isIdentLabel(node->child[0])) return false;
+        if (!isExactLabel(node->child[1], "lparent")) return false;
+        return isExactLabel(node->child[2], "rparent");
+    }
+
     if (effectiveChildCount==4) {
         if (!isIdentLabel(node->child[0])) return false;
         if (!isExactLabel(node->child[1], "lparent")) return false;
@@ -637,6 +657,7 @@ bool is_factor_complete(Node *node) {
     if (node->childCount==1) {
         return isIdentLabel(node->child[0]) ||
                isIntconLabel(node->child[0]) ||
+               isRealconLabel(node->child[0]) ||
                isCharconLabel(node->child[0]) ||
                isStringLabel(node->child[0]) ||
                is_procedure_function_call_complete(node->child[0]);
