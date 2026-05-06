@@ -72,7 +72,6 @@ typedef struct {
     TokenType type;
     char lexeme[MAX_LEXEME];
     size_t line;
-    size_t column;
 } Token;
 
 const char *tokenTypeToString(TokenType type);

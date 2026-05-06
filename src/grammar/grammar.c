@@ -230,10 +230,10 @@ bool is_array_type_complete(Node *node) {
 bool is_range_complete(Node *node) {
     if (!isExactLabel(node, "<range>")) return false;
     if (node->childCount!=4) return false;
-    if (!is_expression_complete(node->child[0])) return false;
+    if (!is_constant_complete(node->child[0])) return false;
     if (!isExactLabel(node->child[1], "period")) return false;
     if (!isExactLabel(node->child[2], "period")) return false;
-    return is_expression_complete(node->child[3]);
+    return is_constant_complete(node->child[3]);
 }
 
 // 12
@@ -242,8 +242,7 @@ bool is_enumerated_complete(Node *node) {
 
     if (!isExactLabel(node, "<enumerated>")) return false;
     if (node->childCount < 3) return false;
-    if (!isExactLabel(node->child[0], "lbrack") && !isExactLabel(node->child[0], "lparent"))
-        return false;
+    if (!isExactLabel(node->child[0], "lparent")) return false;
     if (!isIdentLabel(node->child[1])) return false;
 
     while (i + 1 < node->childCount - 1) {
@@ -252,8 +251,7 @@ bool is_enumerated_complete(Node *node) {
     }
 
     if (i!=node->childCount - 1) return false;
-    return isExactLabel(node->child[node->childCount - 1], "rbrack") ||
-           isExactLabel(node->child[node->childCount - 1], "rparent");
+    return isExactLabel(node->child[node->childCount - 1], "rparent");
 }
 
 // 13
@@ -439,7 +437,7 @@ bool is_statement_complete(Node *node) {
 bool is_assignment_statement_complete(Node *node) {
     if (!isExactLabel(node, "<assignment-statement>")) return false;
     if (node->childCount!=3) return false;
-    if (!isIdentLabel(node->child[0])) return false;
+    if (!is_variable_complete(node->child[0])) return false;
     if (!isExactLabel(node->child[1], "becomes")) return false;
     return is_expression_complete(node->child[2]);
 }
@@ -543,6 +541,54 @@ bool is_for_statement_complete(Node *node) {
     if (!is_expression_complete(node->child[5])) return false;
     if (!isExactLabel(node->child[6], "dosy")) return false;
     return is_statement_complete(node->child[7]);
+}
+
+bool is_index_list_complete(Node *node) {
+    if (!isExactLabel(node, "<index-list>")) return false;
+    if (node->childCount < 1) return false;
+    if (!isIntconLabel(node->child[0]) &&
+        !isCharconLabel(node->child[0]) &&
+        !isIdentLabel(node->child[0])) return false;
+
+    int i = 1;
+    while (i + 1 < node->childCount) {
+        if (!isExactLabel(node->child[i], "comma")) return false;
+        if (!is_index_list_complete(node->child[i + 1])) return false;
+        i += 2;
+    }
+
+    return true;
+}
+
+bool is_component_variable_complete(Node *node) {
+    if (!isExactLabel(node, "<component-variable>")) return false;
+
+    if (node->childCount==3) {
+        if (!isExactLabel(node->child[0], "lbrack")) return false;
+        if (!is_index_list_complete(node->child[1])) return false;
+        return isExactLabel(node->child[2], "rbrack");
+    }
+
+    if (node->childCount==2) {
+        if (!isExactLabel(node->child[0], "period")) return false;
+        return isIdentLabel(node->child[1]);
+    }
+
+    return false;
+}
+
+bool is_variable_complete(Node *node) {
+    int i;
+
+    if (!isExactLabel(node, "<variable>")) return false;
+    if (node->childCount < 1) return false;
+    if (!isIdentLabel(node->child[0])) return false;
+
+    for (i = 1; i < node->childCount; i++) {
+        if (!is_component_variable_complete(node->child[i])) return false;
+    }
+
+    return true;
 }
 
 // 32
@@ -655,12 +701,12 @@ bool is_factor_complete(Node *node) {
     if (!isExactLabel(node, "<factor>")) return false;
 
     if (node->childCount==1) {
-        return isIdentLabel(node->child[0]) ||
-               isIntconLabel(node->child[0]) ||
+        return isIntconLabel(node->child[0]) ||
                isRealconLabel(node->child[0]) ||
                isCharconLabel(node->child[0]) ||
                isStringLabel(node->child[0]) ||
-               is_procedure_function_call_complete(node->child[0]);
+               is_procedure_function_call_complete(node->child[0]) ||
+               is_variable_complete(node->child[0]);
     }
 
     if (node->childCount==2) {

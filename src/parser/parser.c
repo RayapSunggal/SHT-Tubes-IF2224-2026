@@ -587,6 +587,9 @@ static ParseTreeNode *parseCaseBlock(Parser *ps);
 static ParseTreeNode *parseWhileStatement(Parser *ps);
 static ParseTreeNode *parseRepeatStatement(Parser *ps);
 static ParseTreeNode *parseForStatement(Parser *ps);
+static ParseTreeNode *parseVariable(Parser *ps);
+static ParseTreeNode *parseComponentVariable(Parser *ps);
+static ParseTreeNode *parseIndexList(Parser *ps);
 static ParseTreeNode *parseProcedureFunctionCall(Parser *ps);
 static ParseTreeNode *parseParameterList(Parser *ps);
 static ParseTreeNode *parseExpression(Parser *ps);
@@ -599,6 +602,43 @@ static bool grammarAttachChild(Parser *ps, Node *parent, Node *child);
 static void grammarFreeNode(Node *node);
 static Node *convertParseTreeToGrammarNode(Parser *ps, ParseTreeNode *src);
 static bool validateWithGrammar(Parser *ps, ParseTreeNode *root);
+
+static bool hasBecomesAfterVariable(Parser *ps) {
+    size_t i = ps->pos;
+
+    if (i >= ps->count || ps->tokens[i].type != TOKEN_IDENT) {
+        return false;
+    }
+    i++;
+
+    while (i < ps->count) {
+        TokenType t = ps->tokens[i].type;
+
+        if (t == TOKEN_LBRACK) {
+            int depth = 1;
+            i++;
+            while (i < ps->count && depth > 0) {
+                if (ps->tokens[i].type == TOKEN_LBRACK) depth++;
+                else if (ps->tokens[i].type == TOKEN_RBRACK) depth--;
+                i++;
+            }
+        }
+        else if (t == TOKEN_PERIOD) {
+            if (i + 1 < ps->count && ps->tokens[i + 1].type == TOKEN_PERIOD) {
+                break;
+            }
+            i++;
+            if (i < ps->count && ps->tokens[i].type == TOKEN_IDENT) {
+                i++;
+            }
+        }
+        else {
+            break;
+        }
+    }
+
+    return i < ps->count && ps->tokens[i].type == TOKEN_BECOMES;
+}
 
 static bool isTypeBoundary(TokenType type) {
     switch (type) {
@@ -795,15 +835,15 @@ static ParseTreeNode *parseIdentifierList(Parser *ps) {
 
 static ParseTreeNode *parseRange(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<range>");
-    ParseTreeNode *leftExpr;
-    ParseTreeNode *rightExpr;
+    ParseTreeNode *leftConst;
+    ParseTreeNode *rightConst;
 
     if (node==NULL) {
         return NULL;
     }
 
-    leftExpr=parseExpression(ps);
-    if (leftExpr==NULL || !parserAttachChild(ps, node, leftExpr)) {
+    leftConst=parseConstant(ps);
+    if (leftConst==NULL || !parserAttachChild(ps, node, leftConst)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -814,8 +854,8 @@ static ParseTreeNode *parseRange(Parser *ps) {
         return NULL;
     }
 
-    rightExpr=parseExpression(ps);
-    if (rightExpr==NULL || !parserAttachChild(ps, node, rightExpr)) {
+    rightConst=parseConstant(ps);
+    if (rightConst==NULL || !parserAttachChild(ps, node, rightConst)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -825,28 +865,18 @@ static ParseTreeNode *parseRange(Parser *ps) {
 
 static ParseTreeNode *parseEnumerated(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<enumerated>");
-    TokenType openType;
-    TokenType closeType;
 
     if (node==NULL) {
         return NULL;
     }
 
-    if (parserCurrentType(ps)==TOKEN_LPARENT) {
-        openType=TOKEN_LPARENT;
-        closeType=TOKEN_RPARENT;
-    }
-    else if (parserCurrentType(ps)==TOKEN_LBRACK) {
-        openType=TOKEN_LBRACK;
-        closeType=TOKEN_RBRACK;
-    }
-    else {
-        parserRecordSyntaxErrorCurrent(ps, "Expected enumerated type.");
+    if (parserCurrentType(ps)!=TOKEN_LPARENT) {
+        parserRecordSyntaxErrorCurrent(ps, "Expected '(' to begin enumerated type.");
         parserSkipUntilTypeBoundary(ps);
         return node;
     }
 
-    if (!parserExpectToken(ps, openType, node) ||
+    if (!parserExpectToken(ps, TOKEN_LPARENT, node) ||
         !parserExpectToken(ps, TOKEN_IDENT, node)) {
         parseTreeFree(node);
         return NULL;
@@ -859,7 +889,7 @@ static ParseTreeNode *parseEnumerated(Parser *ps) {
         }
     }
 
-    if (!parserExpectToken(ps, closeType, node)) {
+    if (!parserExpectToken(ps, TOKEN_RPARENT, node)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -1436,6 +1466,103 @@ static ParseTreeNode *parseDeclarationPart(Parser *ps) {
     return node;
 }
 
+static ParseTreeNode *parseIndexList(Parser *ps) {
+    ParseTreeNode *node=parserCreateNode(ps, "<index-list>");
+    TokenType current;
+
+    if (node==NULL) {
+        return NULL;
+    }
+
+    current=parserCurrentType(ps);
+    if (current!=TOKEN_INTCON && current!=TOKEN_CHARCON && current!=TOKEN_IDENT) {
+        parserRecordSyntaxErrorCurrent(ps, "Expected index (intcon, charcon, or ident).");
+        return node;
+    }
+
+    if (!parserExpectToken(ps, current, node)) {
+        parseTreeFree(node);
+        return NULL;
+    }
+
+    while (parserAcceptToken(ps, TOKEN_COMMA, node)) {
+        ParseTreeNode *subList=parseIndexList(ps);
+        if (subList==NULL || !parserAttachChild(ps, node, subList)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+    }
+
+    return node;
+}
+
+static ParseTreeNode *parseComponentVariable(Parser *ps) {
+    ParseTreeNode *node=parserCreateNode(ps, "<component-variable>");
+
+    if (node==NULL) {
+        return NULL;
+    }
+
+    if (parserCurrentType(ps)==TOKEN_LBRACK) {
+        ParseTreeNode *indexListNode;
+
+        if (!parserExpectToken(ps, TOKEN_LBRACK, node)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+
+        indexListNode=parseIndexList(ps);
+        if (indexListNode==NULL || !parserAttachChild(ps, node, indexListNode)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+
+        if (!parserExpectToken(ps, TOKEN_RBRACK, node)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+    }
+    else if (parserCurrentType(ps)==TOKEN_PERIOD) {
+        if (!parserExpectToken(ps, TOKEN_PERIOD, node) ||
+            !parserExpectToken(ps, TOKEN_IDENT, node)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+    }
+    else {
+        parserRecordSyntaxErrorCurrent(ps, "Expected '[' or '.' for component-variable.");
+        return node;
+    }
+
+    return node;
+}
+
+static ParseTreeNode *parseVariable(Parser *ps) {
+    ParseTreeNode *node=parserCreateNode(ps, "<variable>");
+
+    if (node==NULL) {
+        return NULL;
+    }
+
+    if (!parserExpectToken(ps, TOKEN_IDENT, node)) {
+        parseTreeFree(node);
+        return NULL;
+    }
+
+    while (parserCurrentType(ps)==TOKEN_LBRACK || parserCurrentType(ps)==TOKEN_PERIOD) {
+        if (parserCurrentType(ps)==TOKEN_PERIOD && parserPeekType(ps, 1)==TOKEN_PERIOD) {
+            break;
+        }
+        ParseTreeNode *compVar=parseComponentVariable(ps);
+        if (compVar==NULL || !parserAttachChild(ps, node, compVar)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+    }
+
+    return node;
+}
+
 static ParseTreeNode *parseProcedureFunctionCall(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<procedure/function-call>");
 
@@ -1475,22 +1602,35 @@ static ParseTreeNode *parseFactor(Parser *ps) {
     }
 
     if (current==TOKEN_IDENT) {
-        if (parserPeekType(ps, 1)==TOKEN_LPARENT) {
+        TokenType next=parserPeekType(ps, 1);
+
+        if (next==TOKEN_LPARENT) {
             ParseTreeNode *callNode=parseProcedureFunctionCall(ps);
             if (callNode==NULL || !parserAttachChild(ps, node, callNode)) {
                 parseTreeFree(node);
                 return NULL;
             }
-
             return node;
         }
 
-        if (!parserExpectToken(ps, TOKEN_IDENT, node)) {
-            parseTreeFree(node);
-            return NULL;
+        if (next==TOKEN_LBRACK ||
+            (next==TOKEN_PERIOD && parserPeekType(ps, 2)!=TOKEN_PERIOD)) {
+            ParseTreeNode *varNode=parseVariable(ps);
+            if (varNode==NULL || !parserAttachChild(ps, node, varNode)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+            return node;
         }
 
-        return node;
+        {
+            ParseTreeNode *varNode=parseVariable(ps);
+            if (varNode==NULL || !parserAttachChild(ps, node, varNode)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+            return node;
+        }
     }
 
     switch (current) {
@@ -1715,14 +1855,20 @@ static ParseTreeNode *parseParameterList(Parser *ps) {
 
 static ParseTreeNode *parseAssignmentStatement(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<assignment-statement>");
+    ParseTreeNode *varNode;
     ParseTreeNode *exprNode;
 
     if (node==NULL) {
         return NULL;
     }
 
-    if (!parserExpectToken(ps, TOKEN_IDENT, node) ||
-        !parserExpectToken(ps, TOKEN_BECOMES, node)) {
+    varNode=parseVariable(ps);
+    if (varNode==NULL || !parserAttachChild(ps, node, varNode)) {
+        parseTreeFree(node);
+        return NULL;
+    }
+
+    if (!parserExpectToken(ps, TOKEN_BECOMES, node)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -2027,7 +2173,7 @@ static ParseTreeNode *parseStatement(Parser *ps) {
 
     switch (current) {
         case TOKEN_IDENT:
-            if (parserPeekType(ps, 1)==TOKEN_BECOMES) {
+            if (hasBecomesAfterVariable(ps)) {
                 child=parseAssignmentStatement(ps);
             }
             else {
@@ -2088,24 +2234,13 @@ static ParseTreeNode *parseStatementList(Parser *ps) {
 
     while (!isStatementListTerminator(parserCurrentType(ps))) {
         if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
-            ParseTreeNode *semicolonParent=NULL;
-
-            if (node->childCount > 0) {
-                ParseTreeNode *lastStatement=node->children[node->childCount - 1];
-
-                if (lastStatement!=NULL &&
-                    (strcmp(lastStatement->label, "<procedure/function-call>")==0 ||
-                     strcmp(lastStatement->label, "<procedure-call>")==0 ||
-                     strcmp(lastStatement->label, "<function-call>")==0)) {
-                    semicolonParent=lastStatement;
-                }
-            }
-
-            if (!parserExpectToken(ps, TOKEN_SEMICOLON, semicolonParent)) {
+            /* Semicolon always belongs to statement-list */
+            if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
                 parseTreeFree(node);
                 return NULL;
             }
 
+            /* Trailing semicolon before end/until/else is allowed */
             if (isStatementListTerminator(parserCurrentType(ps))) {
                 break;
             }

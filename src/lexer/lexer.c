@@ -5,12 +5,11 @@
 
 #include "../mesinkarakter/mesinkarakter.h"
 
-static void setToken(Token *t, TokenType type, const char *lexeme, size_t line, size_t column) {
+static void setToken(Token *t, TokenType type, const char *lexeme, size_t line) {
     size_t n;
 
     t->type=type;
     t->line=line;
-    t->column=column;
     n=strlen(lexeme);
     if (n >= MAX_LEXEME) {
         n=MAX_LEXEME - 1;
@@ -20,8 +19,8 @@ static void setToken(Token *t, TokenType type, const char *lexeme, size_t line, 
     t->lexeme[n]='\0';
 }
 
-static void setUnknownToken(Token *t, const char *message, size_t line, size_t column) {
-    setToken(t, TOKEN_UNKNOWN, message, line, column);
+static void setUnknownToken(Token *t, const char *message, size_t line) {
+    setToken(t, TOKEN_UNKNOWN, message, line);
 }
 
 static void appendChar(char *buf, int *index, char c) {
@@ -88,12 +87,10 @@ static char lowerChar(char c) {
 
 static void markTokenStart(Lexer *lx) {
     lx->tokenLine=lx->line;
-    lx->tokenColumn=lx->column;
 }
 
 static void markPreviousCharacterAsTokenStart(Lexer *lx) {
     lx->tokenLine=lx->line;
-    lx->tokenColumn=lx->column > 1 ? lx->column - 1 : 1;
 }
 
 static void syncWithMachine(Lexer *lx) {
@@ -110,9 +107,7 @@ void initLexer(Lexer *lx, const char *filename) {
     lx->ready=STARTFILE(filename);
     lx->state=STATE_START;
     lx->line=1;
-    lx->column=1;
     lx->tokenLine=1;
-    lx->tokenColumn=1;
 
     if (lx->ready) {
         syncWithMachine(lx);
@@ -133,9 +128,7 @@ void closeLexer(Lexer *lx) {
     lx->current='\0';
     lx->state=STATE_START;
     lx->line=1;
-    lx->column=1;
     lx->tokenLine=1;
-    lx->tokenColumn=1;
 }
 
 static void lexerAdvance(Lexer *lx) {
@@ -151,10 +144,6 @@ static void lexerAdvance(Lexer *lx) {
 
     if (previous=='\n') {
         lx->line++;
-        lx->column=1;
-    }
-    else {
-        lx->column++;
     }
 }
 
@@ -234,7 +223,7 @@ static bool finishKeywordOrIdent(
 ) {
     if (lx->eof || !isIdentifierPart(lx->current)) {
         lexeme[idx]='\0';
-        setToken(token, keywordType, lexeme, lx->tokenLine, lx->tokenColumn);
+        setToken(token, keywordType, lexeme, lx->tokenLine);
         return true;
     }
 
@@ -244,9 +233,9 @@ static bool finishKeywordOrIdent(
 
 #define RETURN_TOKEN() do { lx->state=STATE_START; return token; } while (0)
 #define RETURN_TOKEN_KEEP_STATE() do { return token; } while (0)
-#define SET_TOKEN(type_, lexeme_) setToken(&token, (type_), (lexeme_), lx->tokenLine, lx->tokenColumn)
-#define SET_UNKNOWN_TOKEN(message_) setUnknownToken(&token, (message_), lx->tokenLine, lx->tokenColumn)
-#define SET_EOF_TOKEN() setToken(&token, TOKEN_EOF, "EOF", lx->line, lx->column)
+#define SET_TOKEN(type_, lexeme_) setToken(&token, (type_), (lexeme_), lx->tokenLine)
+#define SET_UNKNOWN_TOKEN(message_) setUnknownToken(&token, (message_), lx->tokenLine)
+#define SET_EOF_TOKEN() setToken(&token, TOKEN_EOF, "EOF", lx->line)
 
 Token getToken(Lexer *lx) {
     Token token;
@@ -265,7 +254,6 @@ Token getToken(Lexer *lx) {
             case STATE_PENDING_PERIOD:
                 {
                     size_t periodLine=lx->tokenLine;
-                    size_t periodColumn=lx->tokenColumn;
 
                     if (!lx->eof && lx->current=='.') {
                         lx->state=STATE_SECOND_PERIOD;
@@ -275,7 +263,7 @@ Token getToken(Lexer *lx) {
                         lx->state=STATE_START;
                     }
 
-                    setToken(&token, TOKEN_PERIOD, ".", periodLine, periodColumn);
+                    setToken(&token, TOKEN_PERIOD, ".", periodLine);
                 }
                 RETURN_TOKEN();
 
@@ -492,12 +480,11 @@ Token getToken(Lexer *lx) {
 
                 {
                     size_t numberLine=lx->tokenLine;
-                    size_t numberColumn=lx->tokenColumn;
 
                     lx->state=STATE_PENDING_PERIOD;
                     markPreviousCharacterAsTokenStart(lx);
                     lexeme[idx]='\0';
-                    setToken(&token, TOKEN_INTCON, lexeme, numberLine, numberColumn);
+                    setToken(&token, TOKEN_INTCON, lexeme, numberLine);
                 }
                 RETURN_TOKEN_KEEP_STATE();
 
@@ -510,12 +497,11 @@ Token getToken(Lexer *lx) {
 
                 if (!lx->eof && lx->current=='.') {
                     size_t realLine=lx->tokenLine;
-                    size_t realColumn=lx->tokenColumn;
 
                     lexerAdvance(lx);
                     lx->state=STATE_PENDING_PERIOD;
                     lexeme[idx]='\0';
-                    setToken(&token, TOKEN_REALCON, lexeme, realLine, realColumn);
+                    setToken(&token, TOKEN_REALCON, lexeme, realLine);
                     markPreviousCharacterAsTokenStart(lx);
                     RETURN_TOKEN_KEEP_STATE();
                 }
@@ -1206,8 +1192,11 @@ Token getToken(Lexer *lx) {
             case STATE_EQUAL:
                 if (!lx->eof && lx->current=='=') {
                     lexerAdvance(lx);
+                    SET_TOKEN(TOKEN_EQL, "==");
                 }
-                SET_TOKEN(TOKEN_EQL, "=");
+                else {
+                    SET_TOKEN(TOKEN_UNKNOWN, "Invalid '='");
+                }
                 RETURN_TOKEN();
             case STATE_PERIOD:
                 SET_TOKEN(TOKEN_PERIOD, ".");
