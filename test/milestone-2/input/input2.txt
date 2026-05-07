@@ -1,0 +1,11 @@
+program ConstTypeTest;
+const
+  MAX == 100;
+  PI == 3.14;
+  NEG == -5;
+  GREETING == 'Hello';
+type
+  MyRange == 1..10;
+  Season == (Spring, Summer, Autumn, Winter);
+begin
+end.

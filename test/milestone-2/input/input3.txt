@@ -1,0 +1,19 @@
+program ArrayRecordTest;
+type
+  IntArray == array[1..5] of integer;
+  CharRange == array['a'..'z'] of integer;
+  Point == record
+    x: integer;
+    y: integer
+  end;
+var
+  arr: IntArray;
+  p: Point;
+  i: integer;
+begin
+  arr[1] := 42;
+  arr[3] := arr[1] + 10;
+  p.x := 100;
+  p.y := 200;
+  i := p.x + arr[1]
+end.
