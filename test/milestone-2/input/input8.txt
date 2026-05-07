@@ -1,0 +1,41 @@
+program NestedSubprogramTest;
+var
+  i, j: integer;
+
+procedure swap(a, b: integer);
+var
+  temp: integer;
+begin
+  temp := a;
+  a := b;
+  b := temp
+end;
+
+function factorial(n: integer): integer;
+begin
+  if n == 0 then
+    factorial := 1
+  else
+    factorial := n * factorial(n - 1)
+end;
+
+function power(base, exp: integer): integer;
+var
+  result: integer;
+begin
+  result := 1;
+  while exp > 0 do
+  begin
+    result := result * base;
+    exp := exp - 1
+  end;
+  power := result
+end;
+
+begin
+  i := factorial(5);
+  j := power(2, 8);
+  swap(i, j);
+  writeln(i);
+  writeln(j)
+end.
