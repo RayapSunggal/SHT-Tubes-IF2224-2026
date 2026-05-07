@@ -1,0 +1,17 @@
+program ProcCallVariants;
+var
+  x: integer;
+
+procedure doNothing;
+begin
+end;
+
+procedure withEmpty;
+begin
+end;
+
+begin
+  doNothing;
+  withEmpty();
+  x := 1
+end.
