@@ -1958,6 +1958,25 @@ static ParseTreeNode *parseCaseBlock(Parser *ps) {
         return NULL;
     }
 
+    if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+        if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+
+        if (isConstantStart(parserCurrentType(ps))) {
+            ParseTreeNode *nextBlock=parseCaseBlock(ps);
+            if (nextBlock==NULL || !parserAttachChild(ps, node, nextBlock)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+        }
+        else if (parserCurrentType(ps)!=TOKEN_ENDSY && parserCurrentType(ps)!=TOKEN_EOF) {
+            parserRecordSyntaxErrorCurrent(ps, "Expected case label or end after semicolon.");
+            parserSkipUntilStatementBoundary(ps);
+        }
+    }
+
     return node;
 }
 
@@ -1990,42 +2009,6 @@ static ParseTreeNode *parseCaseStatement(Parser *ps) {
     if (caseBlockNode==NULL || !parserAttachChild(ps, node, caseBlockNode)) {
         parseTreeFree(node);
         return NULL;
-    }
-
-    while (parserCurrentType(ps)!=TOKEN_ENDSY && parserCurrentType(ps)!=TOKEN_EOF) {
-        if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
-            if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
-                parseTreeFree(node);
-                return NULL;
-            }
-
-            if (parserCurrentType(ps)==TOKEN_ENDSY) {
-                break;
-            }
-        }
-        else if (isConstantStart(parserCurrentType(ps))) {
-            parserRecordSyntaxErrorCurrent(ps, "Expected semicolon before next case block.");
-        }
-        else {
-            parserRecordSyntaxErrorCurrent(ps, "Unexpected token in case statement.");
-            parserSkipUntilStatementBoundary(ps);
-            if (parserCurrentType(ps)==TOKEN_ENDSY || parserCurrentType(ps)==TOKEN_EOF) {
-                break;
-            }
-            if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
-                continue;
-            }
-        }
-
-        if (!isConstantStart(parserCurrentType(ps))) {
-            continue;
-        }
-
-        caseBlockNode=parseCaseBlock(ps);
-        if (caseBlockNode==NULL || !parserAttachChild(ps, node, caseBlockNode)) {
-            parseTreeFree(node);
-            return NULL;
-        }
     }
 
     if (!parserExpectToken(ps, TOKEN_ENDSY, node)) {
