@@ -1,0 +1,139 @@
+<program>
+|-- <program-header>
+|   |-- programsy
+|   |-- ident(RepeatCaseTest)
+|   `-- semicolon
+|-- <declaration-part>
+|   `-- <var-declaration>
+|       |-- varsy
+|       |-- <identifier-list>
+|       |   |-- ident(x)
+|       |   |-- comma
+|       |   `-- ident(choice)
+|       |-- colon
+|       |-- <type>
+|       |   `-- ident(integer)
+|       `-- semicolon
+|-- <compound-statement>
+|   |-- beginsy
+|   |-- <statement-list>
+|   |   |-- <statement>
+|   |   |   `-- <assignment-statement>
+|   |   |       |-- <variable>
+|   |   |       |   `-- ident(x)
+|   |   |       |-- becomes
+|   |   |       `-- <expression>
+|   |   |           `-- <simple-expression>
+|   |   |               `-- <term>
+|   |   |                   `-- <factor>
+|   |   |                       `-- intcon(5)
+|   |   |-- semicolon
+|   |   |-- <statement>
+|   |   |   `-- <repeat-statement>
+|   |   |       |-- repeatsy
+|   |   |       |-- <statement-list>
+|   |   |       |   `-- <statement>
+|   |   |       |       `-- <assignment-statement>
+|   |   |       |           |-- <variable>
+|   |   |       |           |   `-- ident(x)
+|   |   |       |           |-- becomes
+|   |   |       |           `-- <expression>
+|   |   |       |               `-- <simple-expression>
+|   |   |       |                   |-- <term>
+|   |   |       |                   |   `-- <factor>
+|   |   |       |                   |       `-- <variable>
+|   |   |       |                   |           `-- ident(x)
+|   |   |       |                   |-- <additive-operator>
+|   |   |       |                   |   `-- minus
+|   |   |       |                   `-- <term>
+|   |   |       |                       `-- <factor>
+|   |   |       |                           `-- intcon(1)
+|   |   |       |-- untilsy
+|   |   |       `-- <expression>
+|   |   |           |-- <simple-expression>
+|   |   |           |   `-- <term>
+|   |   |           |       `-- <factor>
+|   |   |           |           `-- <variable>
+|   |   |           |               `-- ident(x)
+|   |   |           |-- <relational-operator>
+|   |   |           |   `-- eql
+|   |   |           `-- <simple-expression>
+|   |   |               `-- <term>
+|   |   |                   `-- <factor>
+|   |   |                       `-- intcon(0)
+|   |   |-- semicolon
+|   |   |-- <statement>
+|   |   |   `-- <assignment-statement>
+|   |   |       |-- <variable>
+|   |   |       |   `-- ident(choice)
+|   |   |       |-- becomes
+|   |   |       `-- <expression>
+|   |   |           `-- <simple-expression>
+|   |   |               `-- <term>
+|   |   |                   `-- <factor>
+|   |   |                       `-- intcon(2)
+|   |   |-- semicolon
+|   |   `-- <statement>
+|   |       `-- <case-statement>
+|   |           |-- casesy
+|   |           |-- <expression>
+|   |           |   `-- <simple-expression>
+|   |           |       `-- <term>
+|   |           |           `-- <factor>
+|   |           |               `-- <variable>
+|   |           |                   `-- ident(choice)
+|   |           |-- ofsy
+|   |           |-- <case-block>
+|   |           |   |-- <constant>
+|   |           |   |   `-- intcon(1)
+|   |           |   |-- colon
+|   |           |   `-- <statement>
+|   |           |       `-- <procedure/function-call>
+|   |           |           |-- ident(writeln)
+|   |           |           |-- lparent
+|   |           |           |-- <parameter-list>
+|   |           |           |   `-- <expression>
+|   |           |           |       `-- <simple-expression>
+|   |           |           |           `-- <term>
+|   |           |           |               `-- <factor>
+|   |           |           |                   `-- string(one)
+|   |           |           `-- rparent
+|   |           |-- semicolon
+|   |           |-- <case-block>
+|   |           |   |-- <constant>
+|   |           |   |   `-- intcon(2)
+|   |           |   |-- colon
+|   |           |   `-- <statement>
+|   |           |       `-- <procedure/function-call>
+|   |           |           |-- ident(writeln)
+|   |           |           |-- lparent
+|   |           |           |-- <parameter-list>
+|   |           |           |   `-- <expression>
+|   |           |           |       `-- <simple-expression>
+|   |           |           |           `-- <term>
+|   |           |           |               `-- <factor>
+|   |           |           |                   `-- string(two)
+|   |           |           `-- rparent
+|   |           |-- semicolon
+|   |           |-- <case-block>
+|   |           |   |-- <constant>
+|   |           |   |   `-- intcon(3)
+|   |           |   |-- comma
+|   |           |   |-- <constant>
+|   |           |   |   `-- intcon(4)
+|   |           |   |-- colon
+|   |           |   `-- <statement>
+|   |           |       `-- <procedure/function-call>
+|   |           |           |-- ident(writeln)
+|   |           |           |-- lparent
+|   |           |           |-- <parameter-list>
+|   |           |           |   `-- <expression>
+|   |           |           |       `-- <simple-expression>
+|   |           |           |           `-- <term>
+|   |           |           |               `-- <factor>
+|   |           |           |                   `-- string(three or four)
+|   |           |           `-- rparent
+|   |           `-- endsy
+|   `-- endsy
+`-- period
+

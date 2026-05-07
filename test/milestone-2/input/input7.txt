@@ -1,0 +1,14 @@
+program ExpressionTest;
+var
+  a, b, c: integer;
+  flag: boolean;
+begin
+  a := 10;
+  b := 3;
+  c := a * b + (a - b) div 2;
+  c := a mod b;
+  c := a / b;
+  flag := (a > b) and not (c == 0);
+  flag := (a <> b) or (c <= 5);
+  flag := (a >= 10) and (b < 5)
+end.

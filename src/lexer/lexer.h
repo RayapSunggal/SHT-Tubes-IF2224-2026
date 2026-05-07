@@ -19,6 +19,7 @@ typedef enum {
     STATE_BRACKET,
     STATE_PERIOD,
     STATE_PENDING_PERIOD,
+    STATE_SECOND_PERIOD,
     STATE_COMMENT_BRACE,
     STATE_COMMENT_PAREN,
     STATE_COMMENT_PAREN_NEAREND,
@@ -154,6 +155,8 @@ typedef struct {
     bool eof;
     char current;
     LexerState state;
+    size_t line;
+    size_t tokenLine;
 } Lexer;
 
 void initLexer(Lexer *lx, const char *filename);

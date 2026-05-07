@@ -1,0 +1,60 @@
+<program>
+|-- <program-header>
+|   |-- programsy
+|   |-- ident(ConstTypeTest)
+|   `-- semicolon
+|-- <declaration-part>
+|   |-- <const-declaration>
+|   |   |-- constsy
+|   |   |-- ident(MAX)
+|   |   |-- eql
+|   |   |-- <constant>
+|   |   |   `-- intcon(100)
+|   |   |-- semicolon
+|   |   |-- ident(PI)
+|   |   |-- eql
+|   |   |-- <constant>
+|   |   |   `-- realcon(3.14)
+|   |   |-- semicolon
+|   |   |-- ident(NEG)
+|   |   |-- eql
+|   |   |-- <constant>
+|   |   |   `-- intcon(-5)
+|   |   |-- semicolon
+|   |   |-- ident(GREETING)
+|   |   |-- eql
+|   |   |-- <constant>
+|   |   |   `-- string(Hello)
+|   |   `-- semicolon
+|   `-- <type-declaration>
+|       |-- typesy
+|       |-- ident(MyRange)
+|       |-- eql
+|       |-- <type>
+|       |   `-- <range>
+|       |       |-- <constant>
+|       |       |   `-- intcon(1)
+|       |       |-- period
+|       |       |-- period
+|       |       `-- <constant>
+|       |           `-- intcon(10)
+|       |-- semicolon
+|       |-- ident(Season)
+|       |-- eql
+|       |-- <type>
+|       |   `-- <enumerated>
+|       |       |-- lparent
+|       |       |-- ident(Spring)
+|       |       |-- comma
+|       |       |-- ident(Summer)
+|       |       |-- comma
+|       |       |-- ident(Autumn)
+|       |       |-- comma
+|       |       |-- ident(Winter)
+|       |       `-- rparent
+|       `-- semicolon
+|-- <compound-statement>
+|   |-- beginsy
+|   `-- endsy
+`-- period
+

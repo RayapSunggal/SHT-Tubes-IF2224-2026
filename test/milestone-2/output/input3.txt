@@ -1,0 +1,187 @@
+<program>
+|-- <program-header>
+|   |-- programsy
+|   |-- ident(ArrayRecordTest)
+|   `-- semicolon
+|-- <declaration-part>
+|   |-- <type-declaration>
+|   |   |-- typesy
+|   |   |-- ident(IntArray)
+|   |   |-- eql
+|   |   |-- <type>
+|   |   |   `-- <array-type>
+|   |   |       |-- arraysy
+|   |   |       |-- lbrack
+|   |   |       |-- <range>
+|   |   |       |   |-- <constant>
+|   |   |       |   |   `-- intcon(1)
+|   |   |       |   |-- period
+|   |   |       |   |-- period
+|   |   |       |   `-- <constant>
+|   |   |       |       `-- intcon(5)
+|   |   |       |-- rbrack
+|   |   |       |-- ofsy
+|   |   |       `-- <type>
+|   |   |           `-- ident(integer)
+|   |   |-- semicolon
+|   |   |-- ident(CharRange)
+|   |   |-- eql
+|   |   |-- <type>
+|   |   |   `-- <array-type>
+|   |   |       |-- arraysy
+|   |   |       |-- lbrack
+|   |   |       |-- <range>
+|   |   |       |   |-- <constant>
+|   |   |       |   |   `-- charcon(a)
+|   |   |       |   |-- period
+|   |   |       |   |-- period
+|   |   |       |   `-- <constant>
+|   |   |       |       `-- charcon(z)
+|   |   |       |-- rbrack
+|   |   |       |-- ofsy
+|   |   |       `-- <type>
+|   |   |           `-- ident(integer)
+|   |   |-- semicolon
+|   |   |-- ident(Point)
+|   |   |-- eql
+|   |   |-- <type>
+|   |   |   `-- <record-type>
+|   |   |       |-- recordsy
+|   |   |       |-- <field-list>
+|   |   |       |   |-- <field-part>
+|   |   |       |   |   |-- <identifier-list>
+|   |   |       |   |   |   `-- ident(x)
+|   |   |       |   |   |-- colon
+|   |   |       |   |   `-- <type>
+|   |   |       |   |       `-- ident(integer)
+|   |   |       |   |-- semicolon
+|   |   |       |   `-- <field-part>
+|   |   |       |       |-- <identifier-list>
+|   |   |       |       |   `-- ident(y)
+|   |   |       |       |-- colon
+|   |   |       |       `-- <type>
+|   |   |       |           `-- ident(integer)
+|   |   |       `-- endsy
+|   |   `-- semicolon
+|   `-- <var-declaration>
+|       |-- varsy
+|       |-- <identifier-list>
+|       |   `-- ident(arr)
+|       |-- colon
+|       |-- <type>
+|       |   `-- ident(IntArray)
+|       |-- semicolon
+|       |-- <identifier-list>
+|       |   `-- ident(p)
+|       |-- colon
+|       |-- <type>
+|       |   `-- ident(Point)
+|       |-- semicolon
+|       |-- <identifier-list>
+|       |   `-- ident(i)
+|       |-- colon
+|       |-- <type>
+|       |   `-- ident(integer)
+|       `-- semicolon
+|-- <compound-statement>
+|   |-- beginsy
+|   |-- <statement-list>
+|   |   |-- <statement>
+|   |   |   `-- <assignment-statement>
+|   |   |       |-- <variable>
+|   |   |       |   |-- ident(arr)
+|   |   |       |   `-- <component-variable>
+|   |   |       |       |-- lbrack
+|   |   |       |       |-- <index-list>
+|   |   |       |       |   `-- intcon(1)
+|   |   |       |       `-- rbrack
+|   |   |       |-- becomes
+|   |   |       `-- <expression>
+|   |   |           `-- <simple-expression>
+|   |   |               `-- <term>
+|   |   |                   `-- <factor>
+|   |   |                       `-- intcon(42)
+|   |   |-- semicolon
+|   |   |-- <statement>
+|   |   |   `-- <assignment-statement>
+|   |   |       |-- <variable>
+|   |   |       |   |-- ident(arr)
+|   |   |       |   `-- <component-variable>
+|   |   |       |       |-- lbrack
+|   |   |       |       |-- <index-list>
+|   |   |       |       |   `-- intcon(3)
+|   |   |       |       `-- rbrack
+|   |   |       |-- becomes
+|   |   |       `-- <expression>
+|   |   |           `-- <simple-expression>
+|   |   |               |-- <term>
+|   |   |               |   `-- <factor>
+|   |   |               |       `-- <variable>
+|   |   |               |           |-- ident(arr)
+|   |   |               |           `-- <component-variable>
+|   |   |               |               |-- lbrack
+|   |   |               |               |-- <index-list>
+|   |   |               |               |   `-- intcon(1)
+|   |   |               |               `-- rbrack
+|   |   |               |-- <additive-operator>
+|   |   |               |   `-- plus
+|   |   |               `-- <term>
+|   |   |                   `-- <factor>
+|   |   |                       `-- intcon(10)
+|   |   |-- semicolon
+|   |   |-- <statement>
+|   |   |   `-- <assignment-statement>
+|   |   |       |-- <variable>
+|   |   |       |   |-- ident(p)
+|   |   |       |   `-- <component-variable>
+|   |   |       |       |-- period
+|   |   |       |       `-- ident(x)
+|   |   |       |-- becomes
+|   |   |       `-- <expression>
+|   |   |           `-- <simple-expression>
+|   |   |               `-- <term>
+|   |   |                   `-- <factor>
+|   |   |                       `-- intcon(100)
+|   |   |-- semicolon
+|   |   |-- <statement>
+|   |   |   `-- <assignment-statement>
+|   |   |       |-- <variable>
+|   |   |       |   |-- ident(p)
+|   |   |       |   `-- <component-variable>
+|   |   |       |       |-- period
+|   |   |       |       `-- ident(y)
+|   |   |       |-- becomes
+|   |   |       `-- <expression>
+|   |   |           `-- <simple-expression>
+|   |   |               `-- <term>
+|   |   |                   `-- <factor>
+|   |   |                       `-- intcon(200)
+|   |   |-- semicolon
+|   |   `-- <statement>
+|   |       `-- <assignment-statement>
+|   |           |-- <variable>
+|   |           |   `-- ident(i)
+|   |           |-- becomes
+|   |           `-- <expression>
+|   |               `-- <simple-expression>
+|   |                   |-- <term>
+|   |                   |   `-- <factor>
+|   |                   |       `-- <variable>
+|   |                   |           |-- ident(p)
+|   |                   |           `-- <component-variable>
+|   |                   |               |-- period
+|   |                   |               `-- ident(x)
+|   |                   |-- <additive-operator>
+|   |                   |   `-- plus
+|   |                   `-- <term>
+|   |                       `-- <factor>
+|   |                           `-- <variable>
+|   |                               |-- ident(arr)
+|   |                               `-- <component-variable>
+|   |                                   |-- lbrack
+|   |                                   |-- <index-list>
+|   |                                   |   `-- intcon(1)
+|   |                                   `-- rbrack
+|   `-- endsy
+`-- period
+

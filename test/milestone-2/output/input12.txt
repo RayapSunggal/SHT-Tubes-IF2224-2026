@@ -1,0 +1,5 @@
+
+Syntax analysis failed.
+Ditemukan error syntax:
+Line 6 near semicolon: Expected statement after semicolon.
+

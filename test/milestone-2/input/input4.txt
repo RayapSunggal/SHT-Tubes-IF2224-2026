@@ -1,0 +1,27 @@
+program SubprogramTest;
+var
+  result: integer;
+
+procedure printValue(x: integer);
+begin
+  writeln(x)
+end;
+
+function add(a, b: integer): integer;
+begin
+  add := a + b
+end;
+
+function multiply(a, b: integer): integer;
+var
+  temp: integer;
+begin
+  temp := a * b;
+  multiply := temp
+end;
+
+begin
+  result := add(3, 4);
+  result := multiply(result, 2);
+  printValue(result)
+end.
