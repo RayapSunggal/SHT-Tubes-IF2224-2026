@@ -1,0 +1,15 @@
+program RepeatCaseTest;
+var
+  x, choice: integer;
+begin
+  x := 5;
+  repeat
+    x := x - 1
+  until x == 0;
+  choice := 2;
+  case choice of
+    1: writeln('one');
+    2: writeln('two');
+    3, 4: writeln('three or four')
+  end
+end.
