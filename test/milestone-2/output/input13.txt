@@ -1,0 +1,62 @@
+<program>
+|-- <program-header>
+|   |-- programsy
+|   |-- ident(ProcCallVariants)
+|   `-- semicolon
+|-- <declaration-part>
+|   |-- <var-declaration>
+|   |   |-- varsy
+|   |   |-- <identifier-list>
+|   |   |   `-- ident(x)
+|   |   |-- colon
+|   |   |-- <type>
+|   |   |   `-- ident(integer)
+|   |   `-- semicolon
+|   |-- <subprogram-declaration>
+|   |   `-- <procedure-declaration>
+|   |       |-- proceduresy
+|   |       |-- ident(doNothing)
+|   |       |-- semicolon
+|   |       |-- block
+|   |       |   |-- <declaration-part>
+|   |       |   `-- <compound-statement>
+|   |       |       |-- beginsy
+|   |       |       `-- endsy
+|   |       `-- semicolon
+|   `-- <subprogram-declaration>
+|       `-- <procedure-declaration>
+|           |-- proceduresy
+|           |-- ident(withEmpty)
+|           |-- semicolon
+|           |-- block
+|           |   |-- <declaration-part>
+|           |   `-- <compound-statement>
+|           |       |-- beginsy
+|           |       `-- endsy
+|           `-- semicolon
+|-- <compound-statement>
+|   |-- beginsy
+|   |-- <statement-list>
+|   |   |-- <statement>
+|   |   |   `-- <procedure/function-call>
+|   |   |       `-- ident(doNothing)
+|   |   |-- semicolon
+|   |   |-- <statement>
+|   |   |   `-- <procedure/function-call>
+|   |   |       |-- ident(withEmpty)
+|   |   |       |-- lparent
+|   |   |       `-- rparent
+|   |   |-- semicolon
+|   |   `-- <statement>
+|   |       `-- <assignment-statement>
+|   |           |-- <variable>
+|   |           |   `-- ident(x)
+|   |           |-- becomes
+|   |           `-- <expression>
+|   |               `-- <simple-expression>
+|   |                   `-- <term>
+|   |                       `-- <factor>
+|   |                           `-- intcon(1)
+|   `-- endsy
+`-- period
+

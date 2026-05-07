@@ -1,0 +1,5 @@
+
+Syntax analysis failed.
+Ditemukan error syntax:
+Line 7 near eof: Expected period, found eof.
+
