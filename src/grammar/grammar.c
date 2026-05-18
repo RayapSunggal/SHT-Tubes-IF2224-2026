@@ -407,7 +407,7 @@ bool is_statement_list_complete(Node *node) {
     int i = 1;
 
     if (!isExactLabel(node, "<statement-list>")) return false;
-    if (node->childCount < 1) return false;
+    if (node->childCount == 0) return true;
     if (!is_statement_complete(node->child[0])) return false;
 
     while (i + 1 < node->childCount) {
@@ -511,11 +511,12 @@ bool is_case_block_complete(Node *node) {
 // 29
 bool is_while_statement_complete(Node *node) {
     if (!isExactLabel(node, "<while-statement>")) return false;
-    if (node->childCount!=4) return false;
+    if (node->childCount!=5) return false;
     if (!isExactLabel(node->child[0], "whilesy")) return false;
     if (!is_expression_complete(node->child[1])) return false;
     if (!isExactLabel(node->child[2], "dosy")) return false;
-    return is_statement_complete(node->child[3]);
+    if (!is_compound_statement_complete(node->child[3])) return false;
+    return isExactLabel(node->child[4], "semicolon");
 }
 
 // 30
@@ -531,7 +532,7 @@ bool is_repeat_statement_complete(Node *node) {
 // 31
 bool is_for_statement_complete(Node *node) {
     if (!isExactLabel(node, "<for-statement>")) return false;
-    if (node->childCount!=8) return false;
+    if (node->childCount!=9) return false;
     if (!isExactLabel(node->child[0], "forsy")) return false;
     if (!isIdentLabel(node->child[1])) return false;
     if (!isExactLabel(node->child[2], "becomes")) return false;
@@ -540,7 +541,8 @@ bool is_for_statement_complete(Node *node) {
         return false;
     if (!is_expression_complete(node->child[5])) return false;
     if (!isExactLabel(node->child[6], "dosy")) return false;
-    return is_statement_complete(node->child[7]);
+    if (!is_compound_statement_complete(node->child[7])) return false;
+    return isExactLabel(node->child[8], "semicolon");
 }
 
 bool is_index_list_complete(Node *node) {

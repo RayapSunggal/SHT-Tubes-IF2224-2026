@@ -2022,7 +2022,7 @@ static ParseTreeNode *parseCaseStatement(Parser *ps) {
 static ParseTreeNode *parseWhileStatement(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<while-statement>");
     ParseTreeNode *exprNode;
-    ParseTreeNode *stmtNode;
+    ParseTreeNode *compoundNode;
 
     if (node==NULL) {
         return NULL;
@@ -2044,8 +2044,17 @@ static ParseTreeNode *parseWhileStatement(Parser *ps) {
         return NULL;
     }
 
-    stmtNode=parseStatement(ps);
-    if (stmtNode==NULL || !parserAttachChild(ps, node, stmtNode)) {
+    if (parserCurrentType(ps)!=TOKEN_BEGINSY) {
+        parserRecordSyntaxErrorCurrent(ps, "Expected 'begin' (compound-statement) after 'do' in while-statement.");
+    }
+
+    compoundNode=parseCompoundStatement(ps);
+    if (compoundNode==NULL || !parserAttachChild(ps, node, compoundNode)) {
+        parseTreeFree(node);
+        return NULL;
+    }
+
+    if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -2090,7 +2099,7 @@ static ParseTreeNode *parseRepeatStatement(Parser *ps) {
 static ParseTreeNode *parseForStatement(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<for-statement>");
     ParseTreeNode *exprNode;
-    ParseTreeNode *stmtNode;
+    ParseTreeNode *compoundNode;
 
     if (node==NULL) {
         return NULL;
@@ -2136,8 +2145,18 @@ static ParseTreeNode *parseForStatement(Parser *ps) {
         return NULL;
     }
 
-    stmtNode=parseStatement(ps);
-    if (stmtNode==NULL || !parserAttachChild(ps, node, stmtNode)) {
+    /* Spesifikasi M3: for-statement wajib compound-statement */
+    if (parserCurrentType(ps)!=TOKEN_BEGINSY) {
+        parserRecordSyntaxErrorCurrent(ps, "Expected 'begin' (compound-statement) after 'do' in for-statement.");
+    }
+
+    compoundNode=parseCompoundStatement(ps);
+    if (compoundNode==NULL || !parserAttachChild(ps, node, compoundNode)) {
+        parseTreeFree(node);
+        return NULL;
+    }
+
+    if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -2203,6 +2222,20 @@ static ParseTreeNode *parseStatementList(Parser *ps) {
         return NULL;
     }
 
+    if (isStatementListTerminator(parserCurrentType(ps))) {
+        return node;
+    }
+
+    if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+        if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+        if (isStatementListTerminator(parserCurrentType(ps))) {
+            return node;
+        }
+    }
+
     if (!isStatementStart(parserCurrentType(ps))) {
         parserRecordSyntaxErrorCurrent(ps, "Expected statement-list.");
         parserSkipUntilStatementBoundary(ps);
@@ -2217,15 +2250,17 @@ static ParseTreeNode *parseStatementList(Parser *ps) {
 
     while (!isStatementListTerminator(parserCurrentType(ps))) {
         if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
-            /* Semicolon always belongs to statement-list */
             if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
                 parseTreeFree(node);
                 return NULL;
             }
 
-            /* Trailing semicolon before end/until/else is allowed */
             if (isStatementListTerminator(parserCurrentType(ps))) {
                 break;
+            }
+
+            if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+                continue;
             }
 
             if (!isStatementStart(parserCurrentType(ps))) {
@@ -2629,15 +2664,9 @@ static Node *convertWhileStatementNode(Parser *ps, ParseTreeNode *src) {
         return NULL;
     }
 
+    /* Struktur M3: whilesy expr dosy compound-statement semicolon */
     for (i=0; i < src->childCount; i++) {
-        Node *child;
-
-        if (i==3) {
-            child=convertAsGrammarStatement(ps, src->children[i]);
-        }
-        else {
-            child=convertParseTreeToGrammarNode(ps, src->children[i]);
-        }
+        Node *child=convertParseTreeToGrammarNode(ps, src->children[i]);
 
         if (child==NULL || !grammarAttachChild(ps, dst, child)) {
             grammarFreeNode(child);
@@ -2657,15 +2686,9 @@ static Node *convertForStatementNode(Parser *ps, ParseTreeNode *src) {
         return NULL;
     }
 
+    /* Struktur M3: forsy ident becomes expr (tosy|downtosy) expr dosy compound-statement semicolon */
     for (i=0; i < src->childCount; i++) {
-        Node *child;
-
-        if (i==7) {
-            child=convertAsGrammarStatement(ps, src->children[i]);
-        }
-        else {
-            child=convertParseTreeToGrammarNode(ps, src->children[i]);
-        }
+        Node *child=convertParseTreeToGrammarNode(ps, src->children[i]);
 
         if (child==NULL || !grammarAttachChild(ps, dst, child)) {
             grammarFreeNode(child);
