@@ -833,7 +833,7 @@ static bool processVarDeclaration(const ParseTreeNode *node, char *message, size
 
         int startAdr = btab[display[currentLevel]].vsze;
         for (int j = 0; j < nameCount; j++) {
-            int result = symEnter(names[j], OBJ_VARIABLE, baseType, arrayRef, 0, startAdr);
+            int result = symEnter(names[j], OBJ_VARIABLE, baseType, arrayRef, 1, startAdr);
             if (result == -1) {
                 setSemanticError(message, messageSize, "Redeclaration of identifier '%s' in the same scope.", names[j]);
                 return false;
@@ -874,7 +874,7 @@ static bool processParameterGroup(const ParseTreeNode *node, char *message, size
 
     int startAdr = btab[display[currentLevel]].psze;
     for (int i = 0; i < nameCount; i++) {
-        int result = symEnter(names[i], OBJ_VARIABLE, baseType, arrayRef, 1, startAdr);
+        int result = symEnter(names[i], OBJ_VARIABLE, baseType, arrayRef, 0, startAdr);
         if (result == -1) {
             setSemanticError(message, messageSize, "Redeclaration of parameter '%s'.", names[i]);
             return false;

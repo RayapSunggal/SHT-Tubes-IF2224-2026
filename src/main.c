@@ -3,9 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "ast/ast_builder.h"
+#include "ast/ast_node.h"
 #include "fileio/fileio.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
+#include "semantic/ast_decorator.h"
 #include "semantic/semantic.h"
 #include "semantic/symbol_table.h"
 
@@ -266,23 +269,25 @@ static bool promptSemanticPaths(char *inputPath, size_t inputPathSize,
 }
 
 static void printSymTableToFile(FILE *out) {
+    int tabN = symTabCount();
+    int btabN = symBtabCount();
+    int atabN = symAtabCount();
+
     fprintf(out, "TAB:\n");
     fprintf(out, " idx | identifier | link | obj | type | ref | nrm | lev | adr\n");
     fprintf(out, "-----+------------+------+------+------+-----+-----+-----+-----\n");
-    for (int i = 0; i < MAX_TAB; i++) {
+    for (int i = 0; i < tabN; i++) {
         if (tab[i].identifier == NULL) continue;
         fprintf(out, " %3d | %10s | %4d | %s | %s | %3d | %3d | %3d | %3d\n",
                 i, tab[i].identifier, tab[i].link,
                 objClassToString(tab[i].obj), baseTypeToString(tab[i].type),
                 tab[i].ref, tab[i].nrm, tab[i].lev, tab[i].adr);
-        if (tab[i].lev == -1) break;
     }
 
     fprintf(out, "\nBTAB:\n");
     fprintf(out, " idx | last | lpar | psze | vsze\n");
     fprintf(out, "-----+------+------+------+------\n");
-    for (int i = 0; i < MAX_BTAB; i++) {
-        if (btab[i].last == -1 && btab[i].lpar == -1 && i > 0) break;
+    for (int i = 0; i < btabN; i++) {
         fprintf(out, " %3d | %4d | %4d | %4d | %4d\n",
                 i, btab[i].last, btab[i].lpar, btab[i].psze, btab[i].vsze);
     }
@@ -290,8 +295,10 @@ static void printSymTableToFile(FILE *out) {
     fprintf(out, "\nATAB:\n");
     fprintf(out, " idx | xtyp | etyp | eref | low | high | elsz | size\n");
     fprintf(out, "-----+------+------+------+-----+------+------+------\n");
-    for (int i = 0; i < MAX_ATAB; i++) {
-        if (atab[i].xtyp == TYPE_NONE && atab[i].etyp == TYPE_NONE && i > 0) break;
+    if (atabN == 0) {
+        fprintf(out, " (kosong - tidak ada array)\n");
+    }
+    for (int i = 0; i < atabN; i++) {
         fprintf(out, " %3d | %5s | %5s | %4d | %3d | %4d | %4d | %4d\n",
                 i, baseTypeToString(atab[i].xtyp), baseTypeToString(atab[i].etyp),
                 atab[i].eref, atab[i].low, atab[i].high, atab[i].elsz, atab[i].size);
@@ -303,11 +310,35 @@ static void printSymTableToFile(FILE *out) {
     }
 }
 
+static void writeSemanticReport(FILE *stream, bool semOk, const char *semMessage,
+                                const AstNode *decoratedAst) {
+    if (semOk) {
+        fprintf(stream, "Semantic analysis berhasil (tanpa error).\n");
+    } else {
+        fprintf(stream, "Semantic error: %s\n", semMessage);
+    }
+
+    fprintf(stream, "\n=== Decorated AST ===\n");
+    if (decoratedAst != NULL) {
+        printDecoratedAst(decoratedAst, stream);
+    } else {
+        fprintf(stream, "(AST tidak dapat dibentuk dari parse tree)\n");
+    }
+
+    fprintf(stream, "\n=== Symbol Table ===\n");
+    printSymTableToFile(stream);
+}
+
 static void runSemanticAnalysis(void) {
     char inputPath[IO_MAX_PATH];
     char outputPath[IO_MAX_PATH];
     SyntaxResult syntaxResult;
     char semMessage[2048];
+    char astMessage[2048];
+    AstNode *ast;
+    bool preOk;
+    bool decorateOk;
+    bool semOk;
     FILE *out;
 
     if (!promptSemanticPaths(inputPath, sizeof(inputPath),
@@ -322,12 +353,28 @@ static void runSemanticAnalysis(void) {
         freeSyntaxResult(&syntaxResult);
         return;
     }
-
     printf("\nSyntax analysis berhasil.\n");
 
     semMessage[0] = '\0';
-    bool semOk = analyzeSemanticTree(syntaxResult.tree, semMessage, sizeof(semMessage));
+    preOk = analyzeSemanticTree(syntaxResult.tree, semMessage, sizeof(semMessage));
+
+    ast = buildAst(syntaxResult.tree);
     freeSyntaxResult(&syntaxResult);
+
+    if (ast == NULL) {
+        printf("\nGagal membangun AST dari parse tree.\n");
+        semOk = false;
+        snprintf(semMessage, sizeof(semMessage),
+                 "Gagal membangun AST dari parse tree.");
+    } else {
+        symInit();
+        astMessage[0] = '\0';
+        decorateOk = decorateAst(ast, astMessage, sizeof(astMessage));
+        semOk = preOk && decorateOk;
+        if (preOk && !decorateOk) {
+            snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
+        }
+    }
 
     if (semOk) {
         printf("\nSemantic analysis berhasil.\n");
@@ -335,28 +382,24 @@ static void runSemanticAnalysis(void) {
         printf("\nSemantic error: %s\n", semMessage);
     }
 
-    printf("\n=== Symbol Table ===\n");
-    symPrint();
+    printf("\n");
+    writeSemanticReport(stdout, semOk, semMessage, ast);
 
     out = fopen(outputPath, "w");
     if (out == NULL) {
         fprintf(stderr, "Gagal membuat file output: %s\n\n", outputPath);
     } else {
-        if (semOk) {
-            fprintf(out, "Semantic analysis berhasil.\n");
-        } else {
-            fprintf(out, "Semantic error: %s\n", semMessage);
-        }
-        fprintf(out, "\n=== Symbol Table ===\n");
-        printSymTableToFile(out);
+        writeSemanticReport(out, semOk, semMessage, ast);
         fclose(out);
         printf("\nOutput tersimpan di: %s\n\n", outputPath);
     }
 
+    astFree(ast);
+
     if (semOk) {
-        printf("\nSemantic analysis selesai tanpa error.\n\n");
+        printf("Semantic analysis selesai tanpa error.\n\n");
     } else {
-        printf("\nSemantic analysis selesai dengan error.\n\n");
+        printf("Semantic analysis selesai dengan error.\n\n");
     }
 }
 

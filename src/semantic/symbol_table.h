@@ -74,6 +74,10 @@ int symLookup(const char *name);
 int symEnterArray(BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz);
 void symPrint(void);
 
+int symTabCount(void);
+int symBtabCount(void);
+int symAtabCount(void);
+
 const char *objClassToString(ObjClass obj);
 const char *baseTypeToString(BaseType type);
 int sizeOfBaseType(BaseType type);

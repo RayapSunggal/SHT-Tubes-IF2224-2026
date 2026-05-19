@@ -282,7 +282,7 @@ int symEnter(const char *name, ObjClass obj, BaseType type, int ref, int nrm, in
 
     if (obj == OBJ_VARIABLE) {
         int size = sizeOfBaseType(type);
-        if (nrm == 1) {
+        if (nrm == 0) {
             btab[blockIndex].psze += size;
         } else {
             btab[blockIndex].vsze += size;
@@ -335,6 +335,18 @@ int symEnterArray(BaseType xtyp, BaseType etyp, int eref, int low, int high, int
     atab[idx].elsz = elsz;
     atab[idx].size = (high - low + 1) * elsz;
     return idx;
+}
+
+int symTabCount(void) {
+    return tabCount;
+}
+
+int symBtabCount(void) {
+    return btabCount;
+}
+
+int symAtabCount(void) {
+    return atabCount;
 }
 
 void symPrint(void) {
