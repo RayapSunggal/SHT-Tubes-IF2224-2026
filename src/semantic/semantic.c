@@ -92,24 +92,31 @@ static int parseIntegerConstant(const ParseTreeNode *node, bool *ok) {
     return 0;
 }
 
+static int parseConstantValue(const ParseTreeNode *node, int *out) {
+    if (node == NULL || out == NULL) return 0;
+    if (labelEq(node, "<constant>") && node->childCount == 1) {
+        node = node->children[0];
+    }
+    bool ok = false;
+    int v = parseIntegerConstant(node, &ok);
+    if (ok) { *out = v; return 1; }
+    if (labelPrefix(node, "CHARCON(") || labelPrefix(node, "charcon(")) {
+        char buf[MAX_IDENTIFIER_NAME];
+        if (extractLexeme(node->label, buf, sizeof(buf)) && buf[0] != '\0') {
+            *out = (unsigned char)buf[0];
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int parseRangeBounds(const ParseTreeNode *node, int *low, int *high) {
     if (!labelEq(node, "<range>") || node->childCount != 4) {
         return 0;
     }
 
-    bool ok = false;
-    int left = parseIntegerConstant(node->children[0], &ok);
-    if (!ok) {
-        return 0;
-    }
-
-    int right = parseIntegerConstant(node->children[3], &ok);
-    if (!ok) {
-        return 0;
-    }
-
-    *low = left;
-    *high = right;
+    if (!parseConstantValue(node->children[0], low)) return 0;
+    if (!parseConstantValue(node->children[3], high)) return 0;
     return 1;
 }
 
@@ -147,53 +154,88 @@ static BaseType parseTypeNode(const ParseTreeNode *node, int *arrayRef) {
         if (!extractLexeme(child->label, name, sizeof(name))) {
             return TYPE_NONE;
         }
-        return baseTypeFromName(name);
+        BaseType bt = baseTypeFromName(name);
+        if (bt != TYPE_NONE) {
+            return bt;
+        }
+        int idx = symLookup(name);
+        if (idx != -1 && tab[idx].obj == OBJ_TYPE) {
+            if (arrayRef != NULL) {
+                *arrayRef = tab[idx].ref;
+            }
+            return tab[idx].type;
+        }
+        return TYPE_NONE;
     }
 
     if (labelEq(child, "<array-type>")) {
-        if (child->childCount != 6) {
-            return TYPE_ARRAY;
+        int low = 0, high = 0;
+        BaseType indexType = TYPE_INTEGER;
+
+        const ParseTreeNode *rangeNode = NULL;
+        const ParseTreeNode *elemTypeNode = NULL;
+        for (size_t ci = 0; ci < child->childCount; ci++) {
+            if (labelEq(child->children[ci], "<range>")) rangeNode = child->children[ci];
+            if (labelEq(child->children[ci], "<type>"))  elemTypeNode = child->children[ci];
         }
 
-        int low = 0;
-        int high = 0;
-        int indexType = TYPE_NONE;
-        int rangeIndex = 2;
-        const ParseTreeNode *indexNode = child->children[rangeIndex];
-
-        if (labelEq(indexNode, "<range>")) {
-            if (!parseRangeBounds(indexNode, &low, &high)) {
-                return TYPE_ARRAY;
-            }
-            indexType = TYPE_INTEGER;
-        } else if (labelPrefix(indexNode, "IDENT(") || labelPrefix(indexNode, "ident(")) {
-            char name[MAX_IDENTIFIER_NAME];
-            if (!extractLexeme(indexNode->label, name, sizeof(name))) {
-                return TYPE_ARRAY;
-            }
-            indexType = baseTypeFromName(name);
-        } else {
-            return TYPE_ARRAY;
+        if (rangeNode != NULL) {
+            if (!parseRangeBounds(rangeNode, &low, &high)) return TYPE_ARRAY;
+            int lo0 = low, hi0 = high;
+            if (lo0 >= 'A' && lo0 <= 'z') indexType = TYPE_CHAR;
+            else indexType = TYPE_INTEGER;
+            (void)lo0; (void)hi0;
         }
 
-        const ParseTreeNode *elementTypeNode = child->children[5];
         int nestedArrayRef = -1;
-        BaseType elementType = TYPE_NONE;
-
-        if (labelEq(elementTypeNode, "<type>")) {
-            elementType = parseTypeNode(elementTypeNode, &nestedArrayRef);
+        BaseType elementType = TYPE_INTEGER;
+        if (elemTypeNode != NULL) {
+            elementType = parseTypeNode(elemTypeNode, &nestedArrayRef);
         }
 
         int size = sizeOfBaseType(elementType);
-        if (size == 0) {
-            size = 1;
-        }
+        if (size == 0) size = 1;
 
         if (arrayRef != NULL) {
-            *arrayRef = symEnterArray((BaseType)indexType, elementType, nestedArrayRef, low, high, size);
+            *arrayRef = symEnterArray(indexType, elementType, nestedArrayRef, low, high, size);
         }
-
         return TYPE_ARRAY;
+    }
+
+    if (labelEq(child, "<record-type>")) {
+        int recBlockIdx = symEnterRecordBlock();
+        const ParseTreeNode *fieldList = NULL;
+        for (size_t ci = 0; ci < child->childCount; ci++) {
+            if (labelEq(child->children[ci], "<field-list>")) {
+                fieldList = child->children[ci];
+                break;
+            }
+        }
+        if (fieldList != NULL) {
+            int adr = 0;
+            for (size_t ci = 0; ci < fieldList->childCount; ci++) {
+                const ParseTreeNode *fp = fieldList->children[ci];
+                if (!labelEq(fp, "<field-part>")) continue;
+                char names[MAX_IDENTIFIER_LIST][MAX_IDENTIFIER_NAME];
+                int nameCount = 0;
+                int fieldArrayRef = -1;
+                BaseType fieldType = TYPE_NONE;
+                for (size_t fi = 0; fi < fp->childCount; fi++) {
+                    if (labelEq(fp->children[fi], "<identifier-list>"))
+                        parseIdentifierList(fp->children[fi], names, &nameCount);
+                    if (labelEq(fp->children[fi], "<type>"))
+                        fieldType = parseTypeNode(fp->children[fi], &fieldArrayRef);
+                }
+                if (fieldType == TYPE_NONE) continue;
+                for (int k = 0; k < nameCount; k++) {
+                    symEnterField(names[k], fieldType, fieldArrayRef, adr);
+                    adr += sizeOfBaseType(fieldType);
+                }
+            }
+        }
+        symExitRecordBlock();
+        if (arrayRef != NULL) *arrayRef = recBlockIdx;
+        return TYPE_RECORD;
     }
 
     return TYPE_NONE;
@@ -214,6 +256,16 @@ static BaseType inferExpressionType(const ParseTreeNode *node, char *message, si
 
 static BaseType inferFactorType(const ParseTreeNode *node, char *message, size_t messageSize) {
     if (node == NULL) {
+        return TYPE_NONE;
+    }
+
+    if (labelEq(node, "<factor>")) {
+        if (node->childCount == 1) {
+            return inferFactorType(node->children[0], message, messageSize);
+        }
+        if (node->childCount == 3) {
+            return inferExpressionType(node->children[1], message, messageSize);
+        }
         return TYPE_NONE;
     }
 
@@ -239,7 +291,18 @@ static BaseType inferFactorType(const ParseTreeNode *node, char *message, size_t
                 setSemanticError(message, messageSize, "Identifier '%s' not declared.", name);
                 return TYPE_NONE;
             }
-            return tab[idx].type;
+            BaseType t = tab[idx].type;
+            if (node->childCount >= 2 && labelEq(node->children[1], "<component-variable>")) {
+                const ParseTreeNode *comp = node->children[1];
+                if (comp->childCount > 0 && labelEq(comp->children[0], "lbrack")) {
+                    if (t == TYPE_ARRAY && tab[idx].ref >= 0) {
+                        return atab[tab[idx].ref].etyp;
+                    }
+                    return TYPE_INTEGER;
+                }
+                return TYPE_INTEGER;
+            }
+            return t;
         }
         return TYPE_NONE;
     }
@@ -253,11 +316,11 @@ static BaseType inferFactorType(const ParseTreeNode *node, char *message, size_t
                 setSemanticError(message, messageSize, "Procedure/function '%s' not declared.", name);
                 return TYPE_NONE;
             }
-            if (tab[idx].obj != OBJ_FUNCTION) {
-                setSemanticError(message, messageSize, "Identifier '%s' is not a function.", name);
-                return TYPE_NONE;
+            if (tab[idx].obj == OBJ_FUNCTION) {
+                return tab[idx].type;
             }
-            return tab[idx].type;
+            setSemanticError(message, messageSize, "Identifier '%s' is not a function.", name);
+            return TYPE_NONE;
         }
         return TYPE_NONE;
     }
@@ -267,6 +330,22 @@ static BaseType inferFactorType(const ParseTreeNode *node, char *message, size_t
     }
 
     return TYPE_NONE;
+}
+
+static bool isAndOperator(const ParseTreeNode *opNode) {
+    if (opNode == NULL) return false;
+    if (labelEq(opNode, "andsy")) return true;
+    if (labelEq(opNode, "<multiplicative-operator>") && opNode->childCount == 1)
+        return labelEq(opNode->children[0], "andsy");
+    return false;
+}
+
+static bool isOrOperator(const ParseTreeNode *opNode) {
+    if (opNode == NULL) return false;
+    if (labelEq(opNode, "orsy")) return true;
+    if (labelEq(opNode, "<additive-operator>") && opNode->childCount == 1)
+        return labelEq(opNode->children[0], "orsy");
+    return false;
 }
 
 static BaseType inferTermType(const ParseTreeNode *node, char *message, size_t messageSize) {
@@ -280,13 +359,24 @@ static BaseType inferTermType(const ParseTreeNode *node, char *message, size_t m
     }
 
     for (size_t i = 1; i + 1 < node->childCount; i += 2) {
+        bool isAnd = isAndOperator(node->children[i]);
         BaseType rhs = inferFactorType(node->children[i + 1], message, messageSize);
         if (rhs == TYPE_NONE) {
             return TYPE_NONE;
         }
-        if (result != rhs) {
-            setSemanticError(message, messageSize, "Type mismatch in term.");
-            return TYPE_NONE;
+        if (isAnd) {
+            if (result != TYPE_BOOLEAN || rhs != TYPE_BOOLEAN) {
+                setSemanticError(message, messageSize, "Operator 'and' requires boolean operands.");
+                return TYPE_NONE;
+            }
+            result = TYPE_BOOLEAN;
+        } else if (result != rhs) {
+            if (!((result == TYPE_INTEGER || result == TYPE_REAL) &&
+                  (rhs == TYPE_INTEGER || rhs == TYPE_REAL))) {
+                setSemanticError(message, messageSize, "Type mismatch in term.");
+                return TYPE_NONE;
+            }
+            result = TYPE_REAL;
         }
     }
 
@@ -313,13 +403,24 @@ static BaseType inferSimpleExpressionType(const ParseTreeNode *node, char *messa
     }
 
     for (size_t i = offset + 1; i + 1 < node->childCount; i += 2) {
+        bool isOr = isOrOperator(node->children[i]);
         BaseType rhs = inferTermType(node->children[i + 1], message, messageSize);
         if (rhs == TYPE_NONE) {
             return TYPE_NONE;
         }
-        if (result != rhs) {
-            setSemanticError(message, messageSize, "Type mismatch in simple expression.");
-            return TYPE_NONE;
+        if (isOr) {
+            if (result != TYPE_BOOLEAN || rhs != TYPE_BOOLEAN) {
+                setSemanticError(message, messageSize, "Operator 'or' requires boolean operands.");
+                return TYPE_NONE;
+            }
+            result = TYPE_BOOLEAN;
+        } else if (result != rhs) {
+            if (!((result == TYPE_INTEGER || result == TYPE_REAL) &&
+                  (rhs == TYPE_INTEGER || rhs == TYPE_REAL))) {
+                setSemanticError(message, messageSize, "Type mismatch in simple expression.");
+                return TYPE_NONE;
+            }
+            result = TYPE_REAL;
         }
     }
 
@@ -351,6 +452,119 @@ static BaseType inferExpressionType(const ParseTreeNode *node, char *message, si
 }
 
 static bool processStatement(const ParseTreeNode *node, char *message, size_t messageSize);
+static bool processCompoundStatement(const ParseTreeNode *node, char *message, size_t messageSize);
+static bool processStatementList(const ParseTreeNode *node, char *message, size_t messageSize);
+
+static bool processIfStatement(const ParseTreeNode *node, char *message, size_t messageSize) {
+    if (node == NULL || !labelEq(node, "<if-statement>")) return true;
+
+    const ParseTreeNode *condNode = NULL;
+    const ParseTreeNode *thenNode = NULL;
+    const ParseTreeNode *elseNode = NULL;
+
+    for (size_t i = 0; i < node->childCount; i++) {
+        if (labelEq(node->children[i], "<expression>")) { condNode = node->children[i]; continue; }
+        if (labelEq(node->children[i], "thensy")) {
+            if (i + 1 < node->childCount) thenNode = node->children[i + 1];
+        }
+        if (labelEq(node->children[i], "elsesy")) {
+            if (i + 1 < node->childCount) elseNode = node->children[i + 1];
+        }
+    }
+
+    if (condNode != NULL) {
+        BaseType condType = inferExpressionType(condNode, message, messageSize);
+        if (condType == TYPE_NONE) return false;
+        if (condType != TYPE_BOOLEAN) {
+            setSemanticError(message, messageSize, "Condition in if-statement must be boolean.");
+            return false;
+        }
+    }
+    if (thenNode != NULL && !processStatement(thenNode, message, messageSize)) return false;
+    if (elseNode != NULL && !processStatement(elseNode, message, messageSize)) return false;
+    return true;
+}
+
+static bool processWhileStatement(const ParseTreeNode *node, char *message, size_t messageSize) {
+    if (node == NULL || !labelEq(node, "<while-statement>")) return true;
+
+    const ParseTreeNode *condNode = NULL;
+    const ParseTreeNode *bodyNode = NULL;
+
+    for (size_t i = 0; i < node->childCount; i++) {
+        if (labelEq(node->children[i], "<expression>")) condNode = node->children[i];
+        if (labelEq(node->children[i], "<compound-statement>")) bodyNode = node->children[i];
+    }
+
+    if (condNode != NULL) {
+        BaseType condType = inferExpressionType(condNode, message, messageSize);
+        if (condType == TYPE_NONE) return false;
+        if (condType != TYPE_BOOLEAN) {
+            setSemanticError(message, messageSize, "Condition in while-statement must be boolean.");
+            return false;
+        }
+    }
+    if (bodyNode != NULL && !processCompoundStatement(bodyNode, message, messageSize)) return false;
+    return true;
+}
+
+static bool processForStatement(const ParseTreeNode *node, char *message, size_t messageSize) {
+    if (node == NULL || !labelEq(node, "<for-statement>")) return true;
+
+    const ParseTreeNode *counterNode = NULL;
+    const ParseTreeNode *bodyNode = NULL;
+    int exprCount = 0;
+
+    for (size_t i = 0; i < node->childCount; i++) {
+        if ((labelPrefix(node->children[i], "IDENT(") || labelPrefix(node->children[i], "ident(")) && counterNode == NULL) {
+            counterNode = node->children[i];
+        }
+        if (labelEq(node->children[i], "<expression>")) {
+            if (exprCount == 0) {
+                inferExpressionType(node->children[i], message, messageSize);
+                if (message[0] != '\0') return false;
+            }
+            exprCount++;
+        }
+        if (labelEq(node->children[i], "<compound-statement>")) bodyNode = node->children[i];
+    }
+
+    if (counterNode != NULL) {
+        char name[MAX_IDENTIFIER_NAME];
+        if (getIdentifierName(counterNode, name, sizeof(name))) {
+            int idx = symLookup(name);
+            if (idx == -1) {
+                setSemanticError(message, messageSize, "Counter variable '%s' not declared.", name);
+                return false;
+            }
+            if (tab[idx].type != TYPE_INTEGER) {
+                setSemanticError(message, messageSize, "Counter variable '%s' must be integer.", name);
+                return false;
+            }
+        }
+    }
+    if (bodyNode != NULL && !processCompoundStatement(bodyNode, message, messageSize)) return false;
+    return true;
+}
+
+static bool processRepeatStatement(const ParseTreeNode *node, char *message, size_t messageSize) {
+    if (node == NULL || !labelEq(node, "<repeat-statement>")) return true;
+
+    for (size_t i = 0; i < node->childCount; i++) {
+        if (labelEq(node->children[i], "<statement-list>")) {
+            if (!processStatementList(node->children[i], message, messageSize)) return false;
+        }
+        if (labelEq(node->children[i], "<expression>")) {
+            BaseType condType = inferExpressionType(node->children[i], message, messageSize);
+            if (condType == TYPE_NONE) return false;
+            if (condType != TYPE_BOOLEAN) {
+                setSemanticError(message, messageSize, "Condition in repeat-until must be boolean.");
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 static bool processStatementList(const ParseTreeNode *node, char *message, size_t messageSize) {
     if (node == NULL || !labelEq(node, "<statement-list>")) {
@@ -380,6 +594,8 @@ static bool processCompoundStatement(const ParseTreeNode *node, char *message, s
     return true;
 }
 
+static bool processDeclarationPart(const ParseTreeNode *node, char *message, size_t messageSize);
+
 static bool processBlock(const ParseTreeNode *node, char *message, size_t messageSize);
 
 static bool processAssignmentStatement(const ParseTreeNode *node, char *message, size_t messageSize) {
@@ -407,17 +623,29 @@ static bool processAssignmentStatement(const ParseTreeNode *node, char *message,
     }
 
     BaseType leftType = tab[idx].type;
+    if (variableNode->childCount >= 2 && labelEq(variableNode->children[1], "<component-variable>")) {
+        const ParseTreeNode *comp = variableNode->children[1];
+        if (comp->childCount > 0 && labelEq(comp->children[0], "lbrack")) {
+            if (leftType == TYPE_ARRAY && tab[idx].ref >= 0) {
+                leftType = atab[tab[idx].ref].etyp;
+            } else {
+                leftType = TYPE_INTEGER;
+            }
+        } else {
+            leftType = TYPE_INTEGER;
+        }
+    }
+
     BaseType rightType = inferExpressionType(expressionNode, message, messageSize);
     if (rightType == TYPE_NONE) {
         return false;
     }
 
-    if (leftType != rightType) {
-        setSemanticError(message, messageSize, "Type mismatch assigning to '%s'.", name);
-        return false;
-    }
+    if (leftType == rightType) return true;
+    if (leftType == TYPE_REAL && rightType == TYPE_INTEGER) return true;
 
-    return true;
+    setSemanticError(message, messageSize, "Type mismatch assigning to '%s'.", name);
+    return false;
 }
 
 static bool processProcedureFunctionCall(const ParseTreeNode *node, char *message, size_t messageSize) {
@@ -481,11 +709,21 @@ static bool processStatement(const ParseTreeNode *node, char *message, size_t me
     if (labelEq(child, "<compound-statement>")) {
         return processCompoundStatement(child, message, messageSize);
     }
+    if (labelEq(child, "<if-statement>")) {
+        return processIfStatement(child, message, messageSize);
+    }
+    if (labelEq(child, "<while-statement>")) {
+        return processWhileStatement(child, message, messageSize);
+    }
+    if (labelEq(child, "<for-statement>")) {
+        return processForStatement(child, message, messageSize);
+    }
+    if (labelEq(child, "<repeat-statement>")) {
+        return processRepeatStatement(child, message, messageSize);
+    }
 
     return true;
 }
-
-static bool processDeclarationPart(const ParseTreeNode *node, char *message, size_t messageSize);
 
 static bool processBlock(const ParseTreeNode *node, char *message, size_t messageSize) {
     if (node == NULL || !labelEq(node, "block") || node->childCount != 2) {
@@ -499,12 +737,84 @@ static bool processBlock(const ParseTreeNode *node, char *message, size_t messag
     return processCompoundStatement(node->children[1], message, messageSize);
 }
 
+static BaseType inferConstantType(const ParseTreeNode *node) {
+    if (node == NULL) return TYPE_NONE;
+    if (labelEq(node, "<constant>") && node->childCount >= 1) {
+        node = node->children[0];
+    }
+    if (labelPrefix(node, "INTCON(") || labelPrefix(node, "intcon(")) return TYPE_INTEGER;
+    if (labelPrefix(node, "REALCON(") || labelPrefix(node, "realcon(")) return TYPE_REAL;
+    if (labelPrefix(node, "CHARCON(") || labelPrefix(node, "charcon(")) return TYPE_CHAR;
+    if (labelPrefix(node, "STRING(") || labelPrefix(node, "string(")) return TYPE_STRING;
+    if (labelPrefix(node, "IDENT(") || labelPrefix(node, "ident(")) {
+        char name[MAX_IDENTIFIER_NAME];
+        if (extractLexeme(node->label, name, sizeof(name))) {
+            int idx = symLookup(name);
+            if (idx != -1 && tab[idx].obj == OBJ_CONSTANT) return tab[idx].type;
+        }
+    }
+    return TYPE_NONE;
+}
+
+static bool processConstDeclaration(const ParseTreeNode *node, char *message, size_t messageSize) {
+    if (node == NULL || !labelEq(node, "<const-declaration>")) return true;
+
+    for (int i = 1; i + 3 <= (int)node->childCount; i += 4) {
+        const ParseTreeNode *nameNode  = node->children[i];
+        const ParseTreeNode *constNode = node->children[i + 2];
+
+        char name[MAX_IDENTIFIER_NAME];
+        if (!(labelPrefix(nameNode, "IDENT(") || labelPrefix(nameNode, "ident("))) continue;
+        if (!extractLexeme(nameNode->label, name, sizeof(name))) continue;
+
+        BaseType bt = inferConstantType(constNode);
+        if (bt == TYPE_NONE) {
+            setSemanticError(message, messageSize, "Unknown type for constant '%s'.", name);
+            return false;
+        }
+
+        int result = symEnter(name, OBJ_CONSTANT, bt, -1, 0, 0);
+        if (result == -1) {
+            setSemanticError(message, messageSize, "Redeclaration of constant '%s'.", name);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool processTypeDeclaration(const ParseTreeNode *node, char *message, size_t messageSize) {
+    if (node == NULL || !labelEq(node, "<type-declaration>")) return true;
+
+    for (int i = 1; i + 3 <= (int)node->childCount; i += 4) {
+        const ParseTreeNode *nameNode = node->children[i];
+        const ParseTreeNode *typeNode = node->children[i + 2];
+
+        char name[MAX_IDENTIFIER_NAME];
+        if (!(labelPrefix(nameNode, "IDENT(") || labelPrefix(nameNode, "ident("))) continue;
+        if (!extractLexeme(nameNode->label, name, sizeof(name))) continue;
+
+        int arrayRef = -1;
+        BaseType bt = parseTypeNode(typeNode, &arrayRef);
+        if (bt == TYPE_NONE) {
+            setSemanticError(message, messageSize, "Unknown type in type declaration of '%s'.", name);
+            return false;
+        }
+
+        int result = symEnter(name, OBJ_TYPE, bt, arrayRef, 0, 0);
+        if (result == -1) {
+            setSemanticError(message, messageSize, "Redeclaration of type '%s'.", name);
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool processVarDeclaration(const ParseTreeNode *node, char *message, size_t messageSize) {
     if (node == NULL || !labelEq(node, "<var-declaration>")) {
         return true;
     }
 
-    for (int i = 0; i + 3 < (int)node->childCount; i += 4) {
+    for (int i = 1; i + 3 <= (int)node->childCount; i += 4) {
         const ParseTreeNode *identifierList = node->children[i];
         const ParseTreeNode *typeNode = node->children[i + 2];
 
@@ -648,6 +958,69 @@ static bool processSubprogramDeclaration(const ParseTreeNode *node, char *messag
         return true;
     }
 
+    if (labelEq(subprogram, "<function-declaration>")) {
+        if (subprogram->childCount < 5) return true;
+
+        const ParseTreeNode *identNode = subprogram->children[1];
+        char name[MAX_IDENTIFIER_NAME];
+        if (!getIdentifierName(identNode, name, sizeof(name))) return true;
+
+        BaseType returnType = TYPE_NONE;
+        size_t retIdx = 0;
+        for (size_t ci = 2; ci + 1 < subprogram->childCount; ci++) {
+            if (labelEq(subprogram->children[ci], "colon")) {
+                const ParseTreeNode *retNode = subprogram->children[ci + 1];
+                if (labelPrefix(retNode, "IDENT(") || labelPrefix(retNode, "ident(")) {
+                    char typeName[MAX_IDENTIFIER_NAME];
+                    extractLexeme(retNode->label, typeName, sizeof(typeName));
+                    returnType = baseTypeFromName(typeName);
+                    if (returnType == TYPE_NONE) {
+                        int tidx = symLookup(typeName);
+                        if (tidx != -1 && tab[tidx].obj == OBJ_TYPE) returnType = tab[tidx].type;
+                    }
+                }
+                retIdx = ci;
+                break;
+            }
+        }
+
+        int paramCount = 0;
+        int funcIndex = symEnter(name, OBJ_FUNCTION, returnType, -1, 0, 0);
+        if (funcIndex == -1) {
+            setSemanticError(message, messageSize, "Redeclaration of function '%s'.", name);
+            return false;
+        }
+
+        symEnterScope();
+        tab[funcIndex].ref = display[currentLevel];
+
+        symEnter(name, OBJ_VARIABLE, returnType, -1, 0, 0);
+
+        for (size_t ci = 2; ci < subprogram->childCount; ci++) {
+            if (labelEq(subprogram->children[ci], "<formal-parameter-list>")) {
+                if (!processFormalParameterList(subprogram->children[ci], message, messageSize, &paramCount)) {
+                    symExitScope();
+                    return false;
+                }
+                tab[funcIndex].nrm = paramCount;
+                break;
+            }
+        }
+
+        for (size_t ci = retIdx; ci < subprogram->childCount; ci++) {
+            if (labelEq(subprogram->children[ci], "block")) {
+                if (!processBlock(subprogram->children[ci], message, messageSize)) {
+                    symExitScope();
+                    return false;
+                }
+                break;
+            }
+        }
+
+        symExitScope();
+        return true;
+    }
+
     return true;
 }
 
@@ -658,7 +1031,15 @@ static bool processDeclarationPart(const ParseTreeNode *node, char *message, siz
 
     for (int i = 0; i < (int)node->childCount; i++) {
         const ParseTreeNode *child = node->children[i];
-        if (labelEq(child, "<var-declaration>")) {
+        if (labelEq(child, "<const-declaration>")) {
+            if (!processConstDeclaration(child, message, messageSize)) {
+                return false;
+            }
+        } else if (labelEq(child, "<type-declaration>")) {
+            if (!processTypeDeclaration(child, message, messageSize)) {
+                return false;
+            }
+        } else if (labelEq(child, "<var-declaration>")) {
             if (!processVarDeclaration(child, message, messageSize)) {
                 return false;
             }
