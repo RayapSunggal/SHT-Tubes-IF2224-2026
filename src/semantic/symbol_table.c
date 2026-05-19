@@ -221,7 +221,6 @@ void symExitScope(void) {
     }
 }
 
-/* Create a new btab block for a record type definition (no level increase). */
 int symEnterRecordBlock(void) {
     if (btabCount >= MAX_BTAB) return -1;
     int idx = btabCount++;
@@ -234,10 +233,8 @@ int symEnterRecordBlock(void) {
 }
 
 void symExitRecordBlock(void) {
-    /* nothing to do — record block stays in btab for field lookup */
 }
 
-/* Enter a field directly into the most recently created btab block. */
 int symEnterField(const char *name, BaseType type, int ref, int adr) {
     if (name == NULL || name[0] == '\0' || tabCount >= MAX_TAB || btabCount == 0) return -1;
     int blockIndex = btabCount - 1;
