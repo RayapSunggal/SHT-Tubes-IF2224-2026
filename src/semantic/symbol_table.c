@@ -221,6 +221,42 @@ void symExitScope(void) {
     }
 }
 
+/* Create a new btab block for a record type definition (no level increase). */
+int symEnterRecordBlock(void) {
+    if (btabCount >= MAX_BTAB) return -1;
+    int idx = btabCount++;
+    initializeBtabEntry(&btab[idx]);
+    btab[idx].last = -1;
+    btab[idx].lpar = -1;
+    btab[idx].psze = 0;
+    btab[idx].vsze = 0;
+    return idx;
+}
+
+void symExitRecordBlock(void) {
+    /* nothing to do — record block stays in btab for field lookup */
+}
+
+/* Enter a field directly into the most recently created btab block. */
+int symEnterField(const char *name, BaseType type, int ref, int adr) {
+    if (name == NULL || name[0] == '\0' || tabCount >= MAX_TAB || btabCount == 0) return -1;
+    int blockIndex = btabCount - 1;
+
+    int idx = tabCount++;
+    tab[idx].identifier = copyString(name);
+    tab[idx].link = btab[blockIndex].last;
+    tab[idx].obj = OBJ_VARIABLE;
+    tab[idx].type = type;
+    tab[idx].ref = ref;
+    tab[idx].nrm = 0;
+    tab[idx].lev = currentLevel;
+    tab[idx].adr = adr;
+
+    btab[blockIndex].last = idx;
+    btab[blockIndex].vsze += sizeOfBaseType(type);
+    return idx;
+}
+
 int symEnter(const char *name, ObjClass obj, BaseType type, int ref, int nrm, int adr) {
     if (name == NULL || name[0] == '\0' || tabCount >= MAX_TAB) {
         return -1;
