@@ -6,10 +6,14 @@
 #include "fileio/fileio.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
+#include "semantic/semantic.h"
+#include "semantic/symbol_table.h"
 
 #define NAME_MAX_LEN 256
-#define SYNTAX_INPUT_DIR "test/milestone-2/input"
+#define SYNTAX_INPUT_DIR  "test/milestone-2/input"
 #define SYNTAX_OUTPUT_DIR "test/milestone-2/output"
+#define SEMANTIC_INPUT_DIR  "test/milestone-3/input"
+#define SEMANTIC_OUTPUT_DIR "test/milestone-3/output"
 
 static bool fileExists(const char *path) {
     FILE *fp=fopen(path, "r");
@@ -220,10 +224,147 @@ static void runSyntaxAnalysis(void) {
     freeSyntaxResult(&syntaxResult);
 }
 
+static bool promptSemanticPaths(char *inputPath, size_t inputPathSize,
+                                char *outputPath, size_t outputPathSize) {
+    bool validInput;
+    char inputName[NAME_MAX_LEN];
+
+    do {
+        validInput = false;
+        printf("Masukkan nama file input semantic (ketik 'back' untuk kembali): ");
+        if (scanf("%255s", inputName) != 1) {
+            clearInputBuffer();
+            return false;
+        }
+
+        if (strcmp(inputName, "back") == 0) {
+            return false;
+        }
+
+        if (!buildPathFromName(SEMANTIC_INPUT_DIR, inputName, inputPath, inputPathSize)) {
+            fprintf(stderr, "Nama file input tidak valid.\n\n");
+            continue;
+        }
+
+        {
+            FILE *fp = fopen(inputPath, "r");
+            validInput = (fp != NULL);
+            if (fp) fclose(fp);
+        }
+
+        if (!validInput) {
+            fprintf(stderr, "File input tidak ditemukan: %s\n\n", inputPath);
+        }
+    } while (!validInput);
+
+    if (!buildPathFromName(SEMANTIC_OUTPUT_DIR, inputName, outputPath, outputPathSize)) {
+        fprintf(stderr, "Nama file output tidak valid.\n\n");
+        return false;
+    }
+
+    return true;
+}
+
+static void printSymTableToFile(FILE *out) {
+    fprintf(out, "TAB:\n");
+    fprintf(out, " idx | identifier | link | obj | type | ref | nrm | lev | adr\n");
+    fprintf(out, "-----+------------+------+------+------+-----+-----+-----+-----\n");
+    for (int i = 0; i < MAX_TAB; i++) {
+        if (tab[i].identifier == NULL) continue;
+        fprintf(out, " %3d | %10s | %4d | %s | %s | %3d | %3d | %3d | %3d\n",
+                i, tab[i].identifier, tab[i].link,
+                objClassToString(tab[i].obj), baseTypeToString(tab[i].type),
+                tab[i].ref, tab[i].nrm, tab[i].lev, tab[i].adr);
+        if (tab[i].lev == -1) break;
+    }
+
+    fprintf(out, "\nBTAB:\n");
+    fprintf(out, " idx | last | lpar | psze | vsze\n");
+    fprintf(out, "-----+------+------+------+------\n");
+    for (int i = 0; i < MAX_BTAB; i++) {
+        if (btab[i].last == -1 && btab[i].lpar == -1 && i > 0) break;
+        fprintf(out, " %3d | %4d | %4d | %4d | %4d\n",
+                i, btab[i].last, btab[i].lpar, btab[i].psze, btab[i].vsze);
+    }
+
+    fprintf(out, "\nATAB:\n");
+    fprintf(out, " idx | xtyp | etyp | eref | low | high | elsz | size\n");
+    fprintf(out, "-----+------+------+------+-----+------+------+------\n");
+    for (int i = 0; i < MAX_ATAB; i++) {
+        if (atab[i].xtyp == TYPE_NONE && atab[i].etyp == TYPE_NONE && i > 0) break;
+        fprintf(out, " %3d | %5s | %5s | %4d | %3d | %4d | %4d | %4d\n",
+                i, baseTypeToString(atab[i].xtyp), baseTypeToString(atab[i].etyp),
+                atab[i].eref, atab[i].low, atab[i].high, atab[i].elsz, atab[i].size);
+    }
+
+    fprintf(out, "\ncurrentLevel = %d\n", currentLevel);
+    for (int i = 0; i <= currentLevel; i++) {
+        fprintf(out, "display[%d] = %d\n", i, display[i]);
+    }
+}
+
+static void runSemanticAnalysis(void) {
+    char inputPath[IO_MAX_PATH];
+    char outputPath[IO_MAX_PATH];
+    SyntaxResult syntaxResult;
+    char semMessage[2048];
+    FILE *out;
+
+    if (!promptSemanticPaths(inputPath, sizeof(inputPath),
+                             outputPath, sizeof(outputPath))) {
+        return;
+    }
+
+    (void)ensureMilestoneDirectories();
+
+    if (!analyzeSyntaxFile(inputPath, &syntaxResult)) {
+        fprintf(stderr, "\nSyntax analysis gagal:\n%s\n\n", syntaxResult.message);
+        freeSyntaxResult(&syntaxResult);
+        return;
+    }
+
+    printf("\nSyntax analysis berhasil.\n");
+
+    semMessage[0] = '\0';
+    bool semOk = analyzeSemanticTree(syntaxResult.tree, semMessage, sizeof(semMessage));
+    freeSyntaxResult(&syntaxResult);
+
+    if (semOk) {
+        printf("\nSemantic analysis berhasil.\n");
+    } else {
+        printf("\nSemantic error: %s\n", semMessage);
+    }
+
+    printf("\n=== Symbol Table ===\n");
+    symPrint();
+
+    out = fopen(outputPath, "w");
+    if (out == NULL) {
+        fprintf(stderr, "Gagal membuat file output: %s\n\n", outputPath);
+    } else {
+        if (semOk) {
+            fprintf(out, "Semantic analysis berhasil.\n");
+        } else {
+            fprintf(out, "Semantic error: %s\n", semMessage);
+        }
+        fprintf(out, "\n=== Symbol Table ===\n");
+        printSymTableToFile(out);
+        fclose(out);
+        printf("\nOutput tersimpan di: %s\n\n", outputPath);
+    }
+
+    if (semOk) {
+        printf("\nSemantic analysis selesai tanpa error.\n\n");
+    } else {
+        printf("\nSemantic analysis selesai dengan error.\n\n");
+    }
+}
+
 static bool promptAnalysisMode(int *mode) {
     printf("Pilih mode analisis:\n");
     printf("1. Lexical Analysis\n");
     printf("2. Syntax Analysis\n");
+    printf("3. Semantic Analysis\n");
     printf("0. Exit\n");
     printf("Masukkan pilihan: ");
 
@@ -255,8 +396,11 @@ int main(void) {
         else if (mode==2) {
             runSyntaxAnalysis();
         }
+        else if (mode==3) {
+            runSemanticAnalysis();
+        }
         else {
-            fprintf(stderr, "Pilihan tidak valid. Gunakan 0, 1, atau 2.\n\n");
+            fprintf(stderr, "Pilihan tidak valid. Gunakan 0, 1, 2, atau 3.\n\n");
         }
     }
 }
