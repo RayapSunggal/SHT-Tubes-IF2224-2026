@@ -2,8 +2,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <string.h>
-
 // helper
 
 static int labelEq(const ParseTreeNode *n, const char *lbl) {
