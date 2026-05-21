@@ -9,7 +9,6 @@
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "semantic/ast_decorator.h"
-#include "semantic/semantic.h"
 #include "semantic/symbol_table.h"
 
 #define NAME_MAX_LEN 256
@@ -334,10 +333,7 @@ static void runSemanticAnalysis(void) {
     char outputPath[IO_MAX_PATH];
     SyntaxResult syntaxResult;
     char semMessage[2048];
-    char astMessage[2048];
     AstNode *ast;
-    bool preOk;
-    bool decorateOk;
     bool semOk;
     FILE *out;
 
@@ -356,8 +352,6 @@ static void runSemanticAnalysis(void) {
     printf("\nSyntax analysis berhasil.\n");
 
     semMessage[0] = '\0';
-    preOk = analyzeSemanticTree(syntaxResult.tree, semMessage, sizeof(semMessage));
-
     ast = buildAst(syntaxResult.tree);
     freeSyntaxResult(&syntaxResult);
 
@@ -368,12 +362,7 @@ static void runSemanticAnalysis(void) {
                  "Gagal membangun AST dari parse tree.");
     } else {
         symInit();
-        astMessage[0] = '\0';
-        decorateOk = decorateAst(ast, astMessage, sizeof(astMessage));
-        semOk = preOk && decorateOk;
-        if (preOk && !decorateOk) {
-            snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
-        }
+        semOk = decorateAst(ast, semMessage, sizeof(semMessage));
     }
 
     if (semOk) {
