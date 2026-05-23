@@ -8,8 +8,8 @@
 #include "fileio/fileio.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
+#include "parse_tree/parse_tree.h"
 #include "semantic/ast_decorator.h"
-#include "semantic/semantic.h"
 #include "semantic/symbol_table.h"
 
 #define NAME_MAX_LEN 256
@@ -234,7 +234,7 @@ static bool promptSemanticPaths(char *inputPath, size_t inputPathSize,
 
     do {
         validInput = false;
-        printf("Masukkan nama file input semantic (ketik 'back' untuk kembali): ");
+        printf("Masukkan nama file parse tree semantic (ketik 'back' untuk kembali): ");
         if (scanf("%255s", inputName) != 1) {
             clearInputBuffer();
             return false;
@@ -332,11 +332,10 @@ static void writeSemanticReport(FILE *stream, bool semOk, const char *semMessage
 static void runSemanticAnalysis(void) {
     char inputPath[IO_MAX_PATH];
     char outputPath[IO_MAX_PATH];
-    SyntaxResult syntaxResult;
+    ParseTreeNode *parseTree;
     char semMessage[2048];
     char astMessage[2048];
     AstNode *ast;
-    bool preOk;
     bool decorateOk;
     bool semOk;
     FILE *out;
@@ -348,18 +347,15 @@ static void runSemanticAnalysis(void) {
 
     (void)ensureMilestoneDirectories();
 
-    if (!analyzeSyntaxFile(inputPath, &syntaxResult)) {
-        fprintf(stderr, "\nSyntax analysis gagal:\n%s\n\n", syntaxResult.message);
-        freeSyntaxResult(&syntaxResult);
+    parseTree = parseTreeReadFromFile(inputPath, semMessage, sizeof(semMessage));
+    if (parseTree == NULL) {
+        fprintf(stderr, "\nGagal membaca parse tree:\n%s\n\n", semMessage);
         return;
     }
-    printf("\nSyntax analysis berhasil.\n");
+    printf("\nParse tree berhasil dibaca.\n");
 
-    semMessage[0] = '\0';
-    preOk = analyzeSemanticTree(syntaxResult.tree, semMessage, sizeof(semMessage));
-
-    ast = buildAst(syntaxResult.tree);
-    freeSyntaxResult(&syntaxResult);
+    ast = buildAst(parseTree);
+    parseTreeFree(parseTree);
 
     if (ast == NULL) {
         printf("\nGagal membangun AST dari parse tree.\n");
@@ -370,8 +366,8 @@ static void runSemanticAnalysis(void) {
         symInit();
         astMessage[0] = '\0';
         decorateOk = decorateAst(ast, astMessage, sizeof(astMessage));
-        semOk = preOk && decorateOk;
-        if (preOk && !decorateOk) {
+        semOk = decorateOk;
+        if (!decorateOk) {
             snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
         }
     }

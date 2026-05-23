@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 TabEntry tab[MAX_TAB];
 BtabEntry btab[MAX_BTAB];
@@ -12,6 +13,9 @@ int currentLevel = 0;
 static int tabCount = 0;
 static int btabCount = 0;
 static int atabCount = 0;
+static int predefinedCount = 0;
+static int recordBlockStack[MAX_BTAB];
+static int recordBlockDepth = 0;
 
 static char *copyString(const char *src) {
     if (src == NULL) {
@@ -37,6 +41,11 @@ static void initializeTabEntry(TabEntry *entry) {
     entry->nrm = 0;
     entry->lev = 0;
     entry->adr = 0;
+    entry->hasRange = false;
+    entry->rangeBase = TYPE_NONE;
+    entry->rangeLow = 0;
+    entry->rangeHigh = 0;
+    entry->initialized = false;
 }
 
 static void initializeBtabEntry(BtabEntry *entry) {
@@ -63,13 +72,36 @@ static int findSameNameInBlock(const char *name, int blockIndex) {
 
     int i = btab[blockIndex].last;
     while (i != -1) {
-        if (tab[i].identifier != NULL && strcmp(tab[i].identifier, name) == 0) {
+        if (tab[i].identifier != NULL && strcasecmp(tab[i].identifier, name) == 0) {
             return i;
         }
         i = tab[i].link;
     }
 
     return -1;
+}
+
+static int findPermanentName(const char *name) {
+    if (name == NULL || name[0] == '\0') {
+        return -1;
+    }
+
+    for (int i = 0; i < predefinedCount && i < tabCount; i++) {
+        if (tab[i].identifier != NULL && strcasecmp(tab[i].identifier, name) == 0) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static BaseType predefinedTypeName(const char *name) {
+    if (strcasecmp(name, "integer") == 0) return TYPE_INTEGER;
+    if (strcasecmp(name, "real") == 0) return TYPE_REAL;
+    if (strcasecmp(name, "boolean") == 0) return TYPE_BOOLEAN;
+    if (strcasecmp(name, "char") == 0) return TYPE_CHAR;
+    if (strcasecmp(name, "string") == 0) return TYPE_STRING;
+    return TYPE_NONE;
 }
 
 const char *objClassToString(ObjClass obj) {
@@ -101,11 +133,11 @@ const char *baseTypeToString(BaseType type) {
 
 int sizeOfBaseType(BaseType type) {
     switch (type) {
-        case TYPE_INTEGER: return 4;
-        case TYPE_REAL: return 8;
-        case TYPE_BOOLEAN: return 4;
+        case TYPE_INTEGER: return 1;
+        case TYPE_REAL: return 1;
+        case TYPE_BOOLEAN: return 1;
         case TYPE_CHAR: return 1;
-        case TYPE_STRING: return 8;
+        case TYPE_STRING: return 1;
         case TYPE_VOID: return 0;
         case TYPE_ARRAY:
         case TYPE_RECORD:
@@ -116,22 +148,35 @@ int sizeOfBaseType(BaseType type) {
 }
 
 void symInit(void) {
-    static const char *reservedWords[33] = {
-        "and", "array", "begin", "case", "const", "div", "do", "downto",
-        "else", "end", "file", "for", "function", "goto", "if", "in",
-        "label", "mod", "nil", "not", "of", "or", "packed", "procedure",
-        "program", "record", "repeat", "then", "to", "type", "until",
+    static const char *reservedWords[32] = {
+        "and", "array", "begin", "case", "const", "div", "downto", "do",
+        "else", "end", "for", "function", "if", "mod", "not", "of",
+        "or", "procedure", "program", "record", "repeat", "integer",
+        "real", "boolean", "char", "string", "then", "to", "type", "until",
         "var", "while"
     };
 
-    static const char *predefinedNames[6] = {
-        "true", "false", "writeln", "readln", "write", "read"
+    static const struct {
+        const char *name;
+        ObjClass obj;
+        BaseType type;
+        int nrm;
+        int adr;
+    } predefinedNames[] = {
+        { "true", OBJ_CONSTANT, TYPE_BOOLEAN, 1, 1 },
+        { "false", OBJ_CONSTANT, TYPE_BOOLEAN, 1, 0 },
+        { "writeln", OBJ_PROCEDURE, TYPE_VOID, -1, 0 },
+        { "readln", OBJ_PROCEDURE, TYPE_VOID, -1, 0 },
+        { "write", OBJ_PROCEDURE, TYPE_VOID, -1, 0 },
+        { "read", OBJ_PROCEDURE, TYPE_VOID, -1, 0 }
     };
 
     currentLevel = 0;
     tabCount = 0;
     btabCount = 0;
     atabCount = 0;
+    predefinedCount = 0;
+    recordBlockDepth = 0;
 
     for (int i = 0; i < MAX_TAB; i++) {
         initializeTabEntry(&tab[i]);
@@ -149,48 +194,44 @@ void symInit(void) {
         display[i] = -1;
     }
 
-    for (int i = 0; i < 33; i++) {
+    for (int i = 0; i < 32; i++) {
         if (tabCount >= MAX_TAB) {
             break;
         }
         tab[tabCount].identifier = copyString(reservedWords[i]);
         tab[tabCount].link = -1;
         tab[tabCount].obj = OBJ_TYPE;
-        tab[tabCount].type = TYPE_NONE;
+        tab[tabCount].type = predefinedTypeName(reservedWords[i]);
         tab[tabCount].ref = -1;
         tab[tabCount].nrm = 0;
         tab[tabCount].lev = 0;
         tab[tabCount].adr = 0;
+        tab[tabCount].initialized = true;
         tabCount++;
     }
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < (int)(sizeof(predefinedNames) / sizeof(predefinedNames[0])); i++) {
         if (tabCount >= MAX_TAB) {
             break;
         }
 
-        tab[tabCount].identifier = copyString(predefinedNames[i]);
+        tab[tabCount].identifier = copyString(predefinedNames[i].name);
         tab[tabCount].link = -1;
-        tab[tabCount].type = TYPE_VOID;
+        tab[tabCount].obj = predefinedNames[i].obj;
+        tab[tabCount].type = predefinedNames[i].type;
         tab[tabCount].ref = -1;
-        tab[tabCount].nrm = 0;
+        tab[tabCount].nrm = predefinedNames[i].nrm;
         tab[tabCount].lev = 0;
-        tab[tabCount].adr = 0;
-
-        if (i == 0 || i == 1) {
-            tab[tabCount].obj = OBJ_CONSTANT;
-            tab[tabCount].type = TYPE_BOOLEAN;
-        } else {
-            tab[tabCount].obj = OBJ_PROCEDURE;
-            tab[tabCount].type = TYPE_VOID;
-        }
+        tab[tabCount].adr = predefinedNames[i].adr;
+        tab[tabCount].initialized = true;
 
         tabCount++;
     }
+    predefinedCount = tabCount;
 
     initializeBtabEntry(&btab[0]);
     btab[0].last = -1;
-    btab[0].lpar = -1;
+    btab[0].lpar = 0;
     btab[0].psze = 0;
     btab[0].vsze = 0;
     btabCount = 1;
@@ -202,12 +243,11 @@ void symEnterScope(void) {
         return;
     }
 
-    int parentBlock = display[currentLevel];
     int newBlock = btabCount++;
 
     initializeBtabEntry(&btab[newBlock]);
     btab[newBlock].last = -1;
-    btab[newBlock].lpar = parentBlock;
+    btab[newBlock].lpar = 0;
     btab[newBlock].psze = 0;
     btab[newBlock].vsze = 0;
 
@@ -226,18 +266,35 @@ int symEnterRecordBlock(void) {
     int idx = btabCount++;
     initializeBtabEntry(&btab[idx]);
     btab[idx].last = -1;
-    btab[idx].lpar = -1;
+    btab[idx].lpar = 0;
     btab[idx].psze = 0;
     btab[idx].vsze = 0;
+    if (recordBlockDepth < MAX_BTAB) {
+        recordBlockStack[recordBlockDepth++] = idx;
+    }
     return idx;
 }
 
 void symExitRecordBlock(void) {
+    if (recordBlockDepth > 0) {
+        recordBlockDepth--;
+    }
+}
+
+int sizeOfType(BaseType type, int ref) {
+    if (type == TYPE_ARRAY && ref >= 0 && ref < atabCount) {
+        return atab[ref].size;
+    }
+    if (type == TYPE_RECORD && ref >= 0 && ref < btabCount) {
+        return btab[ref].vsze;
+    }
+    return sizeOfBaseType(type);
 }
 
 int symEnterField(const char *name, BaseType type, int ref, int adr) {
-    if (name == NULL || name[0] == '\0' || tabCount >= MAX_TAB || btabCount == 0) return -1;
-    int blockIndex = btabCount - 1;
+    if (name == NULL || name[0] == '\0' || tabCount >= MAX_TAB || recordBlockDepth == 0) return -1;
+    int blockIndex = recordBlockStack[recordBlockDepth - 1];
+    if (findSameNameInBlock(name, blockIndex) != -1) return -1;
 
     int idx = tabCount++;
     tab[idx].identifier = copyString(name);
@@ -248,9 +305,10 @@ int symEnterField(const char *name, BaseType type, int ref, int adr) {
     tab[idx].nrm = 0;
     tab[idx].lev = currentLevel;
     tab[idx].adr = adr;
+    tab[idx].initialized = true;
 
     btab[blockIndex].last = idx;
-    btab[blockIndex].vsze += sizeOfBaseType(type);
+    btab[blockIndex].vsze += sizeOfType(type, ref);
     return idx;
 }
 
@@ -264,7 +322,7 @@ int symEnter(const char *name, ObjClass obj, BaseType type, int ref, int nrm, in
         return -1;
     }
 
-    if (findSameNameInBlock(name, blockIndex) != -1) {
+    if (findSameNameInBlock(name, blockIndex) != -1 || findPermanentName(name) != -1) {
         return -1;
     }
 
@@ -277,19 +335,31 @@ int symEnter(const char *name, ObjClass obj, BaseType type, int ref, int nrm, in
     tab[idx].nrm = nrm;
     tab[idx].lev = currentLevel;
     tab[idx].adr = adr;
+    tab[idx].initialized = obj != OBJ_VARIABLE || nrm == 0;
 
     btab[blockIndex].last = idx;
 
     if (obj == OBJ_VARIABLE) {
-        int size = sizeOfBaseType(type);
+        int size = sizeOfType(type, ref);
         if (nrm == 0) {
             btab[blockIndex].psze += size;
+            btab[blockIndex].lpar = idx;
         } else {
             btab[blockIndex].vsze += size;
         }
     }
 
     return idx;
+}
+
+void symSetRange(int idx, BaseType rangeBase, int low, int high) {
+    if (idx < 0 || idx >= tabCount) {
+        return;
+    }
+    tab[idx].hasRange = true;
+    tab[idx].rangeBase = rangeBase;
+    tab[idx].rangeLow = low;
+    tab[idx].rangeHigh = high;
 }
 
 int symLookup(const char *name) {
@@ -305,15 +375,15 @@ int symLookup(const char *name) {
 
         int idx = btab[blockIndex].last;
         while (idx != -1) {
-            if (tab[idx].identifier != NULL && strcmp(tab[idx].identifier, name) == 0) {
+            if (tab[idx].identifier != NULL && strcasecmp(tab[idx].identifier, name) == 0) {
                 return idx;
             }
             idx = tab[idx].link;
         }
     }
 
-    for (int i = 33; i < 39 && i < tabCount; i++) {
-        if (tab[i].identifier != NULL && strcmp(tab[i].identifier, name) == 0) {
+    for (int i = 0; i < predefinedCount && i < tabCount; i++) {
+        if (tab[i].identifier != NULL && strcasecmp(tab[i].identifier, name) == 0) {
             return i;
         }
     }

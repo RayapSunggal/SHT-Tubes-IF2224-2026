@@ -14,6 +14,7 @@ typedef struct ParseTreeNode {
 
 ParseTreeNode *parseTreeCreateNode(const char *label);
 bool parseTreeAddChild(ParseTreeNode *parent, ParseTreeNode *child);
+ParseTreeNode *parseTreeReadFromFile(const char *path, char *message, size_t messageSize);
 void parseTreePrint(const ParseTreeNode *root, FILE *stream);
 void parseTreeFree(ParseTreeNode *root);
 

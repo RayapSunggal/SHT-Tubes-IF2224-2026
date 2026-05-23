@@ -44,7 +44,7 @@ static bool isIdentifierStart(char c) {
 
 
 static bool isIdentifierPart(char c) {
-    return isLetter(c) || isDigitChar(c);
+    return isLetter(c);
 }
 
 static bool isDefaultSeparatorChar(char c) {
@@ -452,11 +452,6 @@ Token getToken(Lexer *lx) {
                     break;
                 }
 
-                if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
-                    lx->state=STATE_INVALID_EXPONENT;
-                    break;
-                }
-
                 lexeme[idx]='\0';
                 SET_TOKEN(TOKEN_INTCON, lexeme);
                 RETURN_TOKEN();
@@ -504,11 +499,6 @@ Token getToken(Lexer *lx) {
                     setToken(&token, TOKEN_REALCON, lexeme, realLine);
                     markPreviousCharacterAsTokenStart(lx);
                     RETURN_TOKEN_KEEP_STATE();
-                }
-
-                if (!lx->eof && (lx->current=='e' || lx->current=='E')) {
-                    lx->state=STATE_INVALID_EXPONENT;
-                    break;
                 }
 
                 lexeme[idx]='\0';
@@ -1195,7 +1185,7 @@ Token getToken(Lexer *lx) {
                     SET_TOKEN(TOKEN_EQL, "==");
                 }
                 else {
-                    SET_TOKEN(TOKEN_UNKNOWN, "Invalid '='");
+                    SET_TOKEN(TOKEN_EQL, "=");
                 }
                 RETURN_TOKEN();
             case STATE_PERIOD:

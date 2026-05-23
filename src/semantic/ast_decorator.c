@@ -67,124 +67,221 @@ static bool assignmentCompatible(BaseType t1, BaseType t2) {
     return false;
 }
 
+typedef struct {
+    BaseType type;
+    int ref;
+    bool hasRange;
+    BaseType rangeBase;
+    int low;
+    int high;
+} TypeInfo;
+
+static TypeInfo makeTypeInfo(BaseType type, int ref) {
+    TypeInfo info;
+    info.type = type;
+    info.ref = ref;
+    info.hasRange = false;
+    info.rangeBase = TYPE_NONE;
+    info.low = 0;
+    info.high = 0;
+    return info;
+}
+
+static TypeInfo typeInfoFromTab(int idx) {
+    TypeInfo info = makeTypeInfo(TYPE_NONE, -1);
+    if (idx < 0) {
+        return info;
+    }
+    info.type = tab[idx].type;
+    info.ref = tab[idx].ref;
+    info.hasRange = tab[idx].hasRange;
+    info.rangeBase = tab[idx].rangeBase;
+    info.low = tab[idx].rangeLow;
+    info.high = tab[idx].rangeHigh;
+    return info;
+}
+
+static bool constantValue(AstNode *node, long long *value, BaseType *type) {
+    if (node == NULL || value == NULL || type == NULL) {
+        return false;
+    }
+
+    switch (node->type) {
+        case AST_INT_LIT:
+            *value = node->ival;
+            *type = TYPE_INTEGER;
+            return true;
+        case AST_CHAR_LIT:
+            *value = node->sval != NULL ? (unsigned char)node->sval[0] : 0;
+            *type = TYPE_CHAR;
+            return true;
+        case AST_BOOL_LIT:
+            *value = (node->sval != NULL && strcasecmp(node->sval, "true") == 0) ? 1 : 0;
+            *type = TYPE_BOOLEAN;
+            return true;
+        case AST_VAR: {
+            int idx = symLookup(node->sval);
+            if (idx != -1 && tab[idx].obj == OBJ_CONSTANT) {
+                *value = tab[idx].adr;
+                *type = tab[idx].type;
+                return true;
+            }
+            return false;
+        }
+        case AST_UNOP: {
+            long long innerValue = 0;
+            BaseType innerType = TYPE_NONE;
+            if (node->sval != NULL && strcmp(node->sval, "-") == 0 &&
+                node->childCount == 1 &&
+                constantValue(node->children[0], &innerValue, &innerType) &&
+                innerType == TYPE_INTEGER) {
+                *value = -innerValue;
+                *type = TYPE_INTEGER;
+                return true;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
 static void visit(AstNode *node);
 static BaseType visitExpression(AstNode *node);
 static void visitStatement(AstNode *node);
 static void visitDeclPart(AstNode *node);
 static void visitBlock(AstNode *node);
+static int typeRefForNode(AstNode *node);
 
-static BaseType resolveTypeNode(AstNode *typeNode, int *refOut) {
-    if (refOut != NULL) {
-        *refOut = -1;
-    }
+static TypeInfo resolveTypeInfo(AstNode *typeNode) {
     if (typeNode == NULL) {
-        return TYPE_NONE;
+        return makeTypeInfo(TYPE_NONE, -1);
     }
 
     if (typeNode->type == AST_TYPE_IDENT) {
         BaseType bt = baseTypeFromName(typeNode->sval);
         if (bt != TYPE_NONE) {
-            return bt;
+            return makeTypeInfo(bt, -1);
         }
         int idx = symLookup(typeNode->sval);
         if (idx != -1 && tab[idx].obj == OBJ_TYPE) {
             typeNode->tabIdx = idx;
-            if (refOut != NULL) {
-                *refOut = tab[idx].ref;
-            }
-            return tab[idx].type;
+            typeNode->typeIdx = tab[idx].type;
+            typeNode->lexLevel = tab[idx].lev;
+            return typeInfoFromTab(idx);
         }
         semError("Unknown type '%s'.", typeNode->sval ? typeNode->sval : "?");
-        return TYPE_NONE;
+        return makeTypeInfo(TYPE_NONE, -1);
     }
 
     if (typeNode->type == AST_RANGE) {
-        BaseType lo = TYPE_INTEGER;
-        if (typeNode->childCount >= 1) {
-            AstNode *lowN = typeNode->children[0];
-            if (lowN->type == AST_CHAR_LIT) lo = TYPE_CHAR;
-            else if (lowN->type == AST_REAL_LIT) lo = TYPE_REAL;
+        long long lowValue = 0;
+        long long highValue = 0;
+        BaseType lowType = TYPE_NONE;
+        BaseType highType = TYPE_NONE;
+        TypeInfo info;
+
+        if (typeNode->childCount < 2 ||
+            !constantValue(typeNode->children[0], &lowValue, &lowType) ||
+            !constantValue(typeNode->children[1], &highValue, &highType)) {
+            semError("Batas subrange harus berupa konstanta yang diketahui.");
+            return makeTypeInfo(TYPE_NONE, -1);
         }
-        if (lo == TYPE_REAL) {
+
+        if (lowType == TYPE_REAL || highType == TYPE_REAL) {
             semError("Subrange tidak boleh memiliki type Real.");
-            return TYPE_NONE;
+            return makeTypeInfo(TYPE_NONE, -1);
         }
-        if (typeNode->childCount >= 2) {
-            AstNode *a = typeNode->children[0];
-            AstNode *b = typeNode->children[1];
-            if (a->type == AST_INT_LIT && b->type == AST_INT_LIT &&
-                a->ival > b->ival) {
-                semError("Lower bound subrange (%lld) lebih besar dari upper bound (%lld).",
-                         a->ival, b->ival);
-                return TYPE_NONE;
-            }
+
+        if (lowType != highType) {
+            semError("Batas subrange harus memiliki tipe yang sama.");
+            return makeTypeInfo(TYPE_NONE, -1);
         }
-        return lo;
+
+        if (lowValue > highValue) {
+            semError("Lower bound subrange (%lld) lebih besar dari upper bound (%lld).",
+                     lowValue, highValue);
+            return makeTypeInfo(TYPE_NONE, -1);
+        }
+
+        info = makeTypeInfo(lowType, -1);
+        info.hasRange = true;
+        info.rangeBase = lowType;
+        info.low = (int)lowValue;
+        info.high = (int)highValue;
+        typeNode->typeIdx = lowType;
+        return info;
     }
 
     if (typeNode->type == AST_ENUMERATED) {
-        return TYPE_INTEGER;
+        for (size_t i = 0; i < typeNode->childCount; i++) {
+            AstNode *id = typeNode->children[i];
+            int r = symEnter(id->sval, OBJ_CONSTANT, TYPE_INTEGER, -1, 1, (int)i);
+            if (r == -1) {
+                semError("Redeklarasi identifier enumerated '%s'.", id->sval ? id->sval : "?");
+                return makeTypeInfo(TYPE_NONE, -1);
+            }
+            id->tabIdx = r;
+            id->typeIdx = TYPE_INTEGER;
+            id->lexLevel = tab[r].lev;
+        }
+        typeNode->typeIdx = TYPE_INTEGER;
+        return makeTypeInfo(TYPE_INTEGER, -1);
     }
 
     if (typeNode->type == AST_ARRAY_TYPE) {
-        BaseType indexType = TYPE_INTEGER;
-        int low = 0, high = 0;
-        BaseType elemType = TYPE_INTEGER;
-        int elemRef = -1;
-        AstNode *rangeN = NULL;
-        AstNode *elemN = NULL;
+        AstNode *indexN = typeNode->childCount >= 1 ? typeNode->children[0] : NULL;
+        AstNode *elemN = typeNode->childCount >= 2 ? typeNode->children[1] : NULL;
+        TypeInfo indexInfo = makeTypeInfo(TYPE_INTEGER, -1);
+        TypeInfo elemInfo = makeTypeInfo(TYPE_INTEGER, -1);
+        int low = 0;
+        int high = 0;
 
-        for (size_t i = 0; i < typeNode->childCount; i++) {
-            AstNode *c = typeNode->children[i];
-            if (c->type == AST_RANGE && rangeN == NULL) {
-                rangeN = c;
-            } else if ((c->type == AST_TYPE_IDENT || c->type == AST_ARRAY_TYPE ||
-                        c->type == AST_RECORD_TYPE) && elemN == NULL) {
-                elemN = c;
+        if (indexN != NULL) {
+            indexInfo = resolveTypeInfo(indexN);
+            if (indexInfo.type == TYPE_NONE) {
+                return makeTypeInfo(TYPE_NONE, -1);
             }
-        }
-
-        if (rangeN != NULL && rangeN->childCount >= 2) {
-            AstNode *a = rangeN->children[0];
-            AstNode *b = rangeN->children[1];
-            if (a->type == AST_INT_LIT) { low = (int)a->ival; indexType = TYPE_INTEGER; }
-            else if (a->type == AST_CHAR_LIT) {
-                low = a->sval ? (unsigned char)a->sval[0] : 0;
-                indexType = TYPE_CHAR;
+            if (indexInfo.type == TYPE_REAL || indexInfo.type == TYPE_ARRAY ||
+                indexInfo.type == TYPE_RECORD || indexInfo.type == TYPE_STRING ||
+                indexInfo.type == TYPE_VOID) {
+                semError("Index type array harus simple type dan bukan Real.");
+                return makeTypeInfo(TYPE_NONE, -1);
             }
-            if (b->type == AST_INT_LIT)  high = (int)b->ival;
-            else if (b->type == AST_CHAR_LIT) high = b->sval ? (unsigned char)b->sval[0] : 0;
-            if (a->type == AST_REAL_LIT || b->type == AST_REAL_LIT) {
-                semError("Index type array tidak boleh Real.");
-                return TYPE_NONE;
-            }
-            if (low > high) {
-                semError("Batas bawah index array (%d) melebihi batas atas (%d).", low, high);
-                return TYPE_NONE;
+            if (indexInfo.hasRange) {
+                low = indexInfo.low;
+                high = indexInfo.high;
             }
         }
 
         if (elemN != NULL) {
-            elemType = resolveTypeNode(elemN, &elemRef);
-            if (elemType == TYPE_NONE) {
-                return TYPE_NONE;
+            elemInfo = resolveTypeInfo(elemN);
+            if (elemInfo.type == TYPE_NONE) {
+                return makeTypeInfo(TYPE_NONE, -1);
             }
         }
 
-        int elsz = sizeOfBaseType(elemType);
+        int elsz = sizeOfType(elemInfo.type, elemInfo.ref);
         if (elsz == 0) {
             elsz = 1;
         }
-        int aref = symEnterArray(indexType, elemType, elemRef, low, high, elsz);
-        if (refOut != NULL) {
-            *refOut = aref;
+
+        int aref = symEnterArray(indexInfo.type, elemInfo.type, elemInfo.ref, low, high, elsz);
+        if (aref == -1) {
+            semError("Gagal memasukkan tipe array ke symbol table.");
+            return makeTypeInfo(TYPE_NONE, -1);
         }
-        return TYPE_ARRAY;
+        typeNode->typeIdx = TYPE_ARRAY;
+        return makeTypeInfo(TYPE_ARRAY, aref);
     }
 
     if (typeNode->type == AST_RECORD_TYPE) {
         int blockIdx = symEnterRecordBlock();
         int adr = 0;
+        if (blockIdx == -1) {
+            semError("Gagal membuat block record.");
+            return makeTypeInfo(TYPE_NONE, -1);
+        }
         for (size_t i = 0; i < typeNode->childCount; i++) {
             AstNode *fp = typeNode->children[i];
             if (fp->type != AST_FIELD_PART || fp->childCount < 2) {
@@ -192,31 +289,49 @@ static BaseType resolveTypeNode(AstNode *typeNode, int *refOut) {
             }
             AstNode *idList = fp->children[0];
             AstNode *fieldType = fp->children[1];
-            int fieldRef = -1;
-            BaseType ft = resolveTypeNode(fieldType, &fieldRef);
-            if (ft == TYPE_NONE) {
+            TypeInfo fieldInfo = resolveTypeInfo(fieldType);
+            if (fieldInfo.type == TYPE_NONE) {
                 symExitRecordBlock();
-                return TYPE_NONE;
+                return makeTypeInfo(TYPE_NONE, -1);
             }
             for (size_t j = 0; j < idList->childCount; j++) {
-                symEnterField(idList->children[j]->sval, ft, fieldRef, adr);
-                adr += sizeOfBaseType(ft);
+                int f = symEnterField(idList->children[j]->sval, fieldInfo.type, fieldInfo.ref, adr);
+                if (f == -1) {
+                    semError("Redeklarasi field '%s'.", idList->children[j]->sval ? idList->children[j]->sval : "?");
+                    symExitRecordBlock();
+                    return makeTypeInfo(TYPE_NONE, -1);
+                }
+                if (fieldInfo.hasRange) {
+                    symSetRange(f, fieldInfo.rangeBase, fieldInfo.low, fieldInfo.high);
+                }
+                idList->children[j]->tabIdx = f;
+                idList->children[j]->typeIdx = fieldInfo.type;
+                idList->children[j]->lexLevel = tab[f].lev;
+                adr += sizeOfType(fieldInfo.type, fieldInfo.ref);
             }
         }
         symExitRecordBlock();
-        if (refOut != NULL) {
-            *refOut = blockIdx;
-        }
-        return TYPE_RECORD;
+        typeNode->typeIdx = TYPE_RECORD;
+        return makeTypeInfo(TYPE_RECORD, blockIdx);
     }
 
-    return TYPE_NONE;
+    return makeTypeInfo(TYPE_NONE, -1);
 }
 
-static BaseType visitVarRef(AstNode *node) {
+static BaseType resolveVarReference(AstNode *node, bool requireInitialized) {
     int idx = symLookup(node->sval);
     if (idx == -1) {
         semError("Identifier '%s' belum dideklarasikan.",
+                 node->sval ? node->sval : "?");
+        return TYPE_NONE;
+    }
+    if (tab[idx].obj != OBJ_VARIABLE && tab[idx].obj != OBJ_CONSTANT) {
+        semError("Identifier '%s' tidak dapat digunakan sebagai nilai.",
+                 node->sval ? node->sval : "?");
+        return TYPE_NONE;
+    }
+    if (requireInitialized && tab[idx].obj == OBJ_VARIABLE && !tab[idx].initialized) {
+        semError("Variabel '%s' digunakan sebelum diinisialisasi.",
                  node->sval ? node->sval : "?");
         return TYPE_NONE;
     }
@@ -226,7 +341,11 @@ static BaseType visitVarRef(AstNode *node) {
     return tab[idx].type;
 }
 
-static BaseType visitArrayAccess(AstNode *node) {
+static BaseType visitVarRef(AstNode *node) {
+    return resolveVarReference(node, true);
+}
+
+static BaseType visitArrayAccessMode(AstNode *node, bool requireInitialized) {
     if (node->childCount < 1) {
         return TYPE_NONE;
     }
@@ -234,25 +353,28 @@ static BaseType visitArrayAccess(AstNode *node) {
     if (base->type != AST_VAR) {
         return TYPE_NONE;
     }
-    int idx = symLookup(base->sval);
-    if (idx == -1) {
-        semError("Identifier '%s' belum dideklarasikan.",
-                 base->sval ? base->sval : "?");
+    BaseType baseType = resolveVarReference(base, requireInitialized);
+    if (baseType == TYPE_NONE) {
         return TYPE_NONE;
     }
-    base->tabIdx = idx;
-    base->lexLevel = tab[idx].lev;
+    int idx = base->tabIdx;
     node->tabIdx = idx;
     node->lexLevel = tab[idx].lev;
 
-    if (tab[idx].type != TYPE_ARRAY) {
+    if (baseType != TYPE_ARRAY) {
         semError("Identifier '%s' bukan array sehingga tidak dapat diindeks.",
                  base->sval ? base->sval : "?");
         return TYPE_NONE;
     }
 
     int aref = tab[idx].ref;
+    BaseType currentType = tab[idx].type;
     for (size_t i = 1; i < node->childCount; i++) {
+        if (currentType != TYPE_ARRAY || aref < 0) {
+            semError("Jumlah index array '%s' melebihi dimensi array.",
+                     base->sval ? base->sval : "?");
+            return TYPE_NONE;
+        }
         BaseType it = visitExpression(node->children[i]);
         if (it == TYPE_NONE) {
             return TYPE_NONE;
@@ -265,53 +387,118 @@ static BaseType visitArrayAccess(AstNode *node) {
                 return TYPE_NONE;
             }
         }
+        if (atab[aref].low < atab[aref].high) {
+            long long value = 0;
+            BaseType valueType = TYPE_NONE;
+            if (constantValue(node->children[i], &value, &valueType) &&
+                valueType == atab[aref].xtyp &&
+                (value < atab[aref].low || value > atab[aref].high)) {
+                semError("Index array '%s' berada di luar range %d..%d.",
+                         base->sval ? base->sval : "?",
+                         atab[aref].low,
+                         atab[aref].high);
+                return TYPE_NONE;
+            }
+        }
+        currentType = atab[aref].etyp;
+        aref = atab[aref].eref;
     }
 
-    BaseType elem = (aref >= 0) ? atab[aref].etyp : TYPE_INTEGER;
-    node->typeIdx = elem;
-    return elem;
+    node->typeIdx = currentType;
+    return currentType;
 }
 
-static BaseType visitFieldAccess(AstNode *node) {
+static BaseType visitArrayAccess(AstNode *node) {
+    return visitArrayAccessMode(node, true);
+}
+
+static int arrayAccessResultRef(AstNode *node) {
+    if (node == NULL || node->type != AST_ARRAY_ACCESS || node->childCount < 1) {
+        return -1;
+    }
+
+    AstNode *base = node->children[0];
+    BaseType currentType = TYPE_NONE;
+    int ref = -1;
+
+    if (base->type == AST_VAR) {
+        int idx = symLookup(base->sval);
+        if (idx == -1) return -1;
+        currentType = tab[idx].type;
+        ref = tab[idx].ref;
+    } else if (base->type == AST_ARRAY_ACCESS) {
+        currentType = base->typeIdx;
+        ref = arrayAccessResultRef(base);
+    } else if (base->type == AST_FIELD_ACCESS) {
+        currentType = base->typeIdx;
+        ref = base->tabIdx >= 0 ? tab[base->tabIdx].ref : -1;
+    }
+
+    for (size_t i = 1; i < node->childCount; i++) {
+        if (currentType != TYPE_ARRAY || ref < 0) {
+            return -1;
+        }
+        currentType = atab[ref].etyp;
+        ref = atab[ref].eref;
+    }
+
+    return ref;
+}
+
+static BaseType visitFieldAccessMode(AstNode *node, bool requireInitialized) {
     if (node->childCount < 2) {
         return TYPE_NONE;
     }
     AstNode *base = node->children[0];
     AstNode *field = node->children[1];
+    BaseType baseType = TYPE_NONE;
+    int baseRef = -1;
 
-    if (base->type != AST_VAR) {
-        semError("Akses field hanya didukung pada variabel record.");
+    if (base->type == AST_VAR) {
+        baseType = resolveVarReference(base, requireInitialized);
+        if (baseType == TYPE_NONE) {
+            return TYPE_NONE;
+        }
+        int idx = base->tabIdx;
+        baseRef = tab[idx].ref;
+    } else if (base->type == AST_ARRAY_ACCESS) {
+        baseType = visitArrayAccessMode(base, requireInitialized);
+        baseRef = arrayAccessResultRef(base);
+    } else if (base->type == AST_FIELD_ACCESS) {
+        baseType = visitFieldAccessMode(base, requireInitialized);
+        baseRef = base->tabIdx >= 0 ? tab[base->tabIdx].ref : -1;
+    } else {
+        semError("Akses field hanya didukung pada nilai bertipe record.");
         return TYPE_NONE;
     }
-    int idx = symLookup(base->sval);
-    if (idx == -1) {
-        semError("Identifier '%s' belum dideklarasikan.",
-                 base->sval ? base->sval : "?");
-        return TYPE_NONE;
-    }
-    base->tabIdx = idx;
-    base->lexLevel = tab[idx].lev;
 
-    if (tab[idx].type != TYPE_RECORD || tab[idx].ref < 0) {
-        semError("Identifier '%s' bukan record.", base->sval ? base->sval : "?");
+    if (baseType != TYPE_RECORD || baseRef < 0) {
+        semError("Target akses field bukan record.");
         return TYPE_NONE;
     }
 
-    int fi = btab[tab[idx].ref].last;
+    int fi = btab[baseRef].last;
     while (fi != -1) {
         if (tab[fi].identifier != NULL && field->sval != NULL &&
             strcmp(tab[fi].identifier, field->sval) == 0) {
             field->tabIdx = fi;
+            field->typeIdx = tab[fi].type;
+            field->lexLevel = tab[fi].lev;
             node->tabIdx = fi;
+            node->lexLevel = tab[fi].lev;
             node->typeIdx = tab[fi].type;
             return tab[fi].type;
         }
         fi = tab[fi].link;
     }
 
-    semError("Field '%s' tidak ditemukan pada record '%s'.",
-             field->sval ? field->sval : "?", base->sval ? base->sval : "?");
+    semError("Field '%s' tidak ditemukan pada record.",
+             field->sval ? field->sval : "?");
     return TYPE_NONE;
+}
+
+static BaseType visitFieldAccess(AstNode *node) {
+    return visitFieldAccessMode(node, true);
 }
 
 static BaseType visitCall(AstNode *node) {
@@ -329,13 +516,63 @@ static BaseType visitCall(AstNode *node) {
                  node->sval ? node->sval : "?");
         return TYPE_NONE;
     }
+    if (node->type == AST_FUNC_CALL && tab[idx].obj != OBJ_FUNCTION) {
+        semError("Procedure '%s' tidak dapat digunakan sebagai expression.",
+                 node->sval ? node->sval : "?");
+        return TYPE_NONE;
+    }
 
+    int actualCount = 0;
+    BaseType actualTypes[128];
+    int actualRefs[128];
     for (size_t i = 0; i < node->childCount; i++) {
         AstNode *pl = node->children[i];
         if (pl->type == AST_PARAM_LIST) {
             for (size_t j = 0; j < pl->childCount; j++) {
-                if (visitExpression(pl->children[j]) == TYPE_NONE) {
+                BaseType actual = visitExpression(pl->children[j]);
+                if (actual == TYPE_NONE) {
                     return TYPE_NONE;
+                }
+                if (actualCount < (int)(sizeof(actualTypes) / sizeof(actualTypes[0]))) {
+                    actualTypes[actualCount] = actual;
+                    actualRefs[actualCount] = typeRefForNode(pl->children[j]);
+                }
+                actualCount++;
+            }
+        }
+    }
+
+    if (tab[idx].nrm >= 0) {
+        if (actualCount != tab[idx].nrm) {
+            semError("Jumlah parameter '%s' tidak sesuai: diharapkan %d, ditemukan %d.",
+                     node->sval ? node->sval : "?", tab[idx].nrm, actualCount);
+            return TYPE_NONE;
+        }
+
+        if (tab[idx].ref >= 0 && tab[idx].ref < symBtabCount() && tab[idx].nrm > 0) {
+            int formalIdx[128];
+            int formalCount = 0;
+            int p = btab[tab[idx].ref].lpar;
+            while (p > 0 && formalCount < tab[idx].nrm &&
+                   formalCount < (int)(sizeof(formalIdx) / sizeof(formalIdx[0]))) {
+                formalIdx[formalCount++] = p;
+                p = tab[p].link;
+            }
+            if (formalCount == tab[idx].nrm) {
+                for (int i = 0; i < formalCount; i++) {
+                    int f = formalIdx[formalCount - 1 - i];
+                    bool ok;
+                    if (tab[f].type == TYPE_ARRAY || tab[f].type == TYPE_RECORD ||
+                        actualTypes[i] == TYPE_ARRAY || actualTypes[i] == TYPE_RECORD) {
+                        ok = tab[f].type == actualTypes[i] && tab[f].ref == actualRefs[i];
+                    } else {
+                        ok = assignmentCompatible(tab[f].type, actualTypes[i]);
+                    }
+                    if (!ok) {
+                        semError("Tipe parameter ke-%d pada '%s' tidak sesuai.",
+                                 i + 1, node->sval ? node->sval : "?");
+                        return TYPE_NONE;
+                    }
                 }
             }
         }
@@ -488,15 +725,56 @@ static BaseType lvalueType(AstNode *target) {
         return TYPE_NONE;
     }
     if (target->type == AST_VAR) {
-        return visitVarRef(target);
+        BaseType t = resolveVarReference(target, false);
+        if (t != TYPE_NONE && target->tabIdx >= 0 && tab[target->tabIdx].obj != OBJ_VARIABLE) {
+            semError("Identifier '%s' bukan variabel yang dapat di-assign.",
+                     target->sval ? target->sval : "?");
+            return TYPE_NONE;
+        }
+        return t;
     }
     if (target->type == AST_ARRAY_ACCESS) {
-        return visitArrayAccess(target);
+        return visitArrayAccessMode(target, false);
     }
     if (target->type == AST_FIELD_ACCESS) {
-        return visitFieldAccess(target);
+        return visitFieldAccessMode(target, false);
     }
     return TYPE_NONE;
+}
+
+static int typeRefForNode(AstNode *node) {
+    if (node == NULL) {
+        return -1;
+    }
+    if (node->type == AST_VAR) {
+        return node->tabIdx >= 0 ? tab[node->tabIdx].ref : -1;
+    }
+    if (node->type == AST_ARRAY_ACCESS) {
+        return arrayAccessResultRef(node);
+    }
+    if (node->type == AST_FIELD_ACCESS) {
+        return node->tabIdx >= 0 ? tab[node->tabIdx].ref : -1;
+    }
+    if (node->type == AST_FUNC_CALL) {
+        return node->tabIdx >= 0 ? tab[node->tabIdx].ref : -1;
+    }
+    return -1;
+}
+
+static void markAssigned(AstNode *target) {
+    if (target == NULL) {
+        return;
+    }
+    if (target->type == AST_VAR) {
+        if (target->tabIdx >= 0 && tab[target->tabIdx].obj == OBJ_VARIABLE) {
+            tab[target->tabIdx].initialized = true;
+        }
+        return;
+    }
+    if ((target->type == AST_ARRAY_ACCESS || target->type == AST_FIELD_ACCESS) &&
+        target->childCount > 0) {
+        markAssigned(target->children[0]);
+    }
 }
 
 static void visitAssign(AstNode *node) {
@@ -515,11 +793,30 @@ static void visitAssign(AstNode *node) {
         return;
     }
 
-    if (!assignmentCompatible(lt, rt)) {
+    if (lt == TYPE_ARRAY || lt == TYPE_RECORD || rt == TYPE_ARRAY || rt == TYPE_RECORD) {
+        if (lt != rt || typeRefForNode(target) != typeRefForNode(expr)) {
+            semError("Type mismatch: structured type pada assignment tidak kompatibel.");
+            return;
+        }
+    } else if (!assignmentCompatible(lt, rt)) {
         semError("Type mismatch: tidak dapat assign %s ke %s.",
                  baseTypeToString(rt), baseTypeToString(lt));
         return;
     }
+    if (target->tabIdx >= 0 && tab[target->tabIdx].hasRange) {
+        long long value = 0;
+        BaseType valueType = TYPE_NONE;
+        if (constantValue(expr, &value, &valueType) &&
+            valueType == tab[target->tabIdx].rangeBase &&
+            (value < tab[target->tabIdx].rangeLow || value > tab[target->tabIdx].rangeHigh)) {
+            semError("Nilai assignment untuk '%s' berada di luar range %d..%d.",
+                     target->sval ? target->sval : "?",
+                     tab[target->tabIdx].rangeLow,
+                     tab[target->tabIdx].rangeHigh);
+            return;
+        }
+    }
+    markAssigned(target);
     node->typeIdx = TYPE_VOID;
     node->tabIdx = target->tabIdx;
     node->lexLevel = target->lexLevel;
@@ -568,6 +865,11 @@ static void visitFor(AstNode *node) {
     }
     node->tabIdx = idx;
     node->lexLevel = tab[idx].lev;
+    if (tab[idx].obj != OBJ_VARIABLE) {
+        semError("Counter for-loop '%s' harus berupa variabel.",
+                 node->sval ? node->sval : "?");
+        return;
+    }
     if (tab[idx].type != TYPE_INTEGER && tab[idx].type != TYPE_CHAR) {
         semError("Variabel counter '%s' harus bertipe integer/char.",
                  node->sval ? node->sval : "?");
@@ -592,6 +894,7 @@ static void visitFor(AstNode *node) {
             exprSeen++;
         }
     }
+    tab[idx].initialized = true;
 }
 
 static void visitRepeat(AstNode *node) {
@@ -626,7 +929,14 @@ static void visitCase(AstNode *node) {
             AstNode *c = cb->children[j];
             if (c->type == AST_INT_LIT || c->type == AST_CHAR_LIT ||
                 c->type == AST_BOOL_LIT || c->type == AST_VAR) {
-                (void)visitExpression(c);
+                BaseType labelType = visitExpression(c);
+                if (labelType == TYPE_NONE) {
+                    return;
+                }
+                if (!typesCompatible(sel, labelType)) {
+                    semError("Tipe label case tidak kompatibel dengan ekspresi case.");
+                    return;
+                }
             } else {
                 visitStatement(c);
             }
@@ -641,6 +951,8 @@ static void visitStatement(AstNode *node) {
     switch (node->type) {
         case AST_COMPOUND:
         case AST_STMT_LIST:
+            node->typeIdx = TYPE_VOID;
+            node->lexLevel = currentLevel;
             for (size_t i = 0; i < node->childCount; i++) {
                 visitStatement(node->children[i]);
             }
@@ -699,7 +1011,13 @@ static void visitConstDecl(AstNode *node) {
                  node->sval ? node->sval : "?");
         return;
     }
-    int r = symEnter(node->sval, OBJ_CONSTANT, bt, -1, 1, 0);
+    long long value = 0;
+    BaseType valueType = TYPE_NONE;
+    if (!constantValue(valNode, &value, &valueType)) {
+        value = 0;
+    }
+    (void)valueType;
+    int r = symEnter(node->sval, OBJ_CONSTANT, bt, -1, 1, (int)value);
     if (r == -1) {
         semError("Redeklarasi konstanta '%s'.", node->sval ? node->sval : "?");
         return;
@@ -713,22 +1031,24 @@ static void visitTypeDecl(AstNode *node) {
     if (node->childCount < 1) {
         return;
     }
-    int ref = -1;
-    BaseType bt = resolveTypeNode(node->children[0], &ref);
-    if (bt == TYPE_NONE) {
+    TypeInfo info = resolveTypeInfo(node->children[0]);
+    if (info.type == TYPE_NONE) {
         if (!g_hasError) {
             semError("Tipe pada deklarasi type '%s' tidak diketahui.",
                      node->sval ? node->sval : "?");
         }
         return;
     }
-    int r = symEnter(node->sval, OBJ_TYPE, bt, ref, 1, 0);
+    int r = symEnter(node->sval, OBJ_TYPE, info.type, info.ref, 1, 0);
     if (r == -1) {
         semError("Redeklarasi type '%s'.", node->sval ? node->sval : "?");
         return;
     }
+    if (info.hasRange) {
+        symSetRange(r, info.rangeBase, info.low, info.high);
+    }
     node->tabIdx = r;
-    node->typeIdx = bt;
+    node->typeIdx = info.type;
     node->lexLevel = tab[r].lev;
 }
 
@@ -736,24 +1056,26 @@ static void visitVarDecl(AstNode *node) {
     if (node->childCount < 1) {
         return;
     }
-    int ref = -1;
-    BaseType bt = resolveTypeNode(node->children[0], &ref);
-    if (bt == TYPE_NONE) {
+    TypeInfo info = resolveTypeInfo(node->children[0]);
+    if (info.type == TYPE_NONE) {
         if (!g_hasError) {
             semError("Tipe variabel '%s' tidak diketahui.",
                      node->sval ? node->sval : "?");
         }
         return;
     }
-    int r = symEnter(node->sval, OBJ_VARIABLE, bt, ref, 1,
+    int r = symEnter(node->sval, OBJ_VARIABLE, info.type, info.ref, 1,
                      btab[display[currentLevel]].vsze);
     if (r == -1) {
         semError("Redeklarasi identifier '%s' pada scope yang sama.",
                  node->sval ? node->sval : "?");
         return;
     }
+    if (info.hasRange) {
+        symSetRange(r, info.rangeBase, info.low, info.high);
+    }
     node->tabIdx = r;
-    node->typeIdx = bt;
+    node->typeIdx = info.type;
     node->lexLevel = tab[r].lev;
 }
 
@@ -763,22 +1085,24 @@ static void visitParamGroup(AstNode *node, int funcTabIdx) {
     }
     AstNode *idList = node->children[0];
     AstNode *typeN = node->children[1];
-    int ref = -1;
-    BaseType bt = resolveTypeNode(typeN, &ref);
-    if (bt == TYPE_NONE) {
+    TypeInfo info = resolveTypeInfo(typeN);
+    if (info.type == TYPE_NONE) {
         semError("Tipe parameter tidak diketahui.");
         return;
     }
     for (size_t i = 0; i < idList->childCount; i++) {
-        int r = symEnter(idList->children[i]->sval, OBJ_VARIABLE, bt, ref, 0,
+        int r = symEnter(idList->children[i]->sval, OBJ_VARIABLE, info.type, info.ref, 0,
                          btab[display[currentLevel]].psze);
         if (r == -1) {
             semError("Redeklarasi parameter '%s'.",
                      idList->children[i]->sval);
             return;
         }
+        if (info.hasRange) {
+            symSetRange(r, info.rangeBase, info.low, info.high);
+        }
         idList->children[i]->tabIdx = r;
-        idList->children[i]->typeIdx = bt;
+        idList->children[i]->typeIdx = info.type;
         idList->children[i]->lexLevel = tab[r].lev;
         if (funcTabIdx >= 0) {
             tab[funcTabIdx].nrm += 1;
@@ -805,10 +1129,18 @@ static void visitProcDecl(AstNode *node) {
             for (size_t j = 0; j < c->childCount; j++) {
                 if (c->children[j]->type == AST_PARAM_GROUP) {
                     visitParamGroup(c->children[j], procIdx);
+                    if (g_hasError) {
+                        symExitScope();
+                        return;
+                    }
                 }
             }
         } else if (c->type == AST_BLOCK) {
             visitBlock(c);
+            if (g_hasError) {
+                symExitScope();
+                return;
+            }
         }
     }
 
@@ -816,36 +1148,49 @@ static void visitProcDecl(AstNode *node) {
 }
 
 static void visitFuncDecl(AstNode *node) {
-    BaseType retType = TYPE_NONE;
+    TypeInfo retInfo = makeTypeInfo(TYPE_NONE, -1);
     AstNode *retNode = NULL;
     if (node->childCount >= 1 && node->children[0]->type == AST_TYPE_IDENT) {
         retNode = node->children[0];
-        retType = baseTypeFromName(retNode->sval);
-        if (retType == TYPE_NONE) {
-            int ti = symLookup(retNode->sval);
-            if (ti != -1 && tab[ti].obj == OBJ_TYPE) {
-                retType = tab[ti].type;
-            }
-        }
+        retInfo = resolveTypeInfo(retNode);
+    }
+    if (retInfo.type == TYPE_NONE) {
+        semError("Tipe return function '%s' tidak diketahui.",
+                 node->sval ? node->sval : "?");
+        return;
     }
 
-    int funcIdx = symEnter(node->sval, OBJ_FUNCTION, retType, -1, 0, 0);
+    int funcIdx = symEnter(node->sval, OBJ_FUNCTION, retInfo.type, retInfo.ref, 0, 0);
     if (funcIdx == -1) {
         semError("Redeklarasi function '%s'.", node->sval ? node->sval : "?");
         return;
     }
+    if (retInfo.hasRange) {
+        symSetRange(funcIdx, retInfo.rangeBase, retInfo.low, retInfo.high);
+    }
     node->tabIdx = funcIdx;
-    node->typeIdx = retType;
+    node->typeIdx = retInfo.type;
     node->lexLevel = tab[funcIdx].lev;
     if (retNode != NULL) {
-        retNode->typeIdx = retType;
+        retNode->typeIdx = retInfo.type;
     }
 
     symEnterScope();
     tab[funcIdx].ref = display[currentLevel];
     tab[funcIdx].nrm = 0;
 
-    symEnter(node->sval, OBJ_VARIABLE, retType, -1, 1, 0);
+    {
+        int retVar = symEnter(node->sval, OBJ_VARIABLE, retInfo.type, retInfo.ref, 1, 0);
+        if (retVar == -1) {
+            semError("Gagal membuat variabel return function '%s'.",
+                     node->sval ? node->sval : "?");
+            symExitScope();
+            return;
+        }
+        if (retInfo.hasRange) {
+            symSetRange(retVar, retInfo.rangeBase, retInfo.low, retInfo.high);
+        }
+    }
 
     for (size_t i = 0; i < node->childCount; i++) {
         AstNode *c = node->children[i];
@@ -853,10 +1198,18 @@ static void visitFuncDecl(AstNode *node) {
             for (size_t j = 0; j < c->childCount; j++) {
                 if (c->children[j]->type == AST_PARAM_GROUP) {
                     visitParamGroup(c->children[j], funcIdx);
+                    if (g_hasError) {
+                        symExitScope();
+                        return;
+                    }
                 }
             }
         } else if (c->type == AST_BLOCK) {
             visitBlock(c);
+            if (g_hasError) {
+                symExitScope();
+                return;
+            }
         }
     }
 
@@ -946,7 +1299,9 @@ static void visit(AstNode *node) {
     for (size_t i = 0; i < node->childCount; i++) {
         AstNode *c = node->children[i];
         if (c->type == AST_COMPOUND) {
+            symEnterScope();
             visitStatement(c);
+            symExitScope();
         }
         if (g_hasError) {
             return;

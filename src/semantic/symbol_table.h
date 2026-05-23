@@ -38,6 +38,11 @@ typedef struct {
     int nrm;
     int lev;
     int adr;
+    bool hasRange;
+    BaseType rangeBase;
+    int rangeLow;
+    int rangeHigh;
+    bool initialized;
 } TabEntry;
 
 typedef struct {
@@ -70,6 +75,7 @@ int symEnterRecordBlock(void);
 void symExitRecordBlock(void);
 int symEnterField(const char *name, BaseType type, int ref, int adr);
 int symEnter(const char *name, ObjClass obj, BaseType type, int ref, int nrm, int adr);
+void symSetRange(int idx, BaseType rangeBase, int low, int high);
 int symLookup(const char *name);
 int symEnterArray(BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz);
 void symPrint(void);
@@ -81,5 +87,6 @@ int symAtabCount(void);
 const char *objClassToString(ObjClass obj);
 const char *baseTypeToString(BaseType type);
 int sizeOfBaseType(BaseType type);
+int sizeOfType(BaseType type, int ref);
 
 #endif // SYMBOL_TABLE_H

@@ -404,24 +404,34 @@ bool is_compound_statement_complete(Node *node) {
 
 // 23
 bool is_statement_list_complete(Node *node) {
-    int i = 1;
+    int i = 0;
+    bool expectStatement = true;
+    bool sawContent = false;
 
     if (!isExactLabel(node, "<statement-list>")) return false;
     if (node->childCount == 0) return true;
-    if (!is_statement_complete(node->child[0])) return false;
 
-    while (i + 1 < node->childCount) {
-        if (!isSemicolonStatementPair(node->child[i], node->child[i+1])) return false;
-        i += 2;
+    while (i < node->childCount) {
+        if (isExactLabel(node->child[i], "semicolon")) {
+            expectStatement = true;
+            sawContent = true;
+            i++;
+            continue;
+        }
+
+        if (!expectStatement || !is_statement_complete(node->child[i])) return false;
+        expectStatement = false;
+        sawContent = true;
+        i++;
     }
 
-    return i==node->childCount ||
-           (i==node->childCount - 1 && isExactLabel(node->child[i], "semicolon"));
+    return sawContent;
 }
 
 // 24
 bool is_statement_complete(Node *node) {
     if (!isExactLabel(node, "statement") && !isExactLabel(node, "<statement>")) return false;
+    if (node->childCount==0) return true;
     if (node->childCount!=1) return false;
     return is_assignment_statement_complete(node->child[0]) ||
            is_compound_statement_complete(node->child[0]) ||

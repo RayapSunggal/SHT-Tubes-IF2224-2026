@@ -28,6 +28,35 @@ static const char *extractLexeme(const char *label, char *buf, size_t bufSize) {
     return buf;
 }
 
+static AstNode *cloneAstNode(const AstNode *node) {
+    AstNode *copy;
+    size_t i;
+
+    if (node == NULL) return NULL;
+
+    if (node->sval != NULL) {
+        copy = astCreateSval(node->type, node->sval);
+    } else {
+        copy = astCreateNode(node->type);
+    }
+
+    if (copy == NULL) return NULL;
+
+    copy->ival = node->ival;
+    copy->rval = node->rval;
+
+    for (i = 0; i < node->childCount; i++) {
+        AstNode *childCopy = cloneAstNode(node->children[i]);
+        if (childCopy == NULL || !astAddChild(copy, childCopy)) {
+            astFree(childCopy);
+            astFree(copy);
+            return NULL;
+        }
+    }
+
+    return copy;
+}
+
 static AstNode *buildProgram(const ParseTreeNode *n);
 static AstNode *buildProgramHeader(const ParseTreeNode *n);
 static AstNode *buildDeclarationPart(const ParseTreeNode *n);
@@ -286,14 +315,9 @@ static AstNode *buildVarDeclaration(const ParseTreeNode *n) {
             if (vd == NULL) { astFree(idList); astFree(typeNode); astFree(varPart); return NULL; }
 
             if (typeNode != NULL) {
-                AstNode *typeCopy = astCreateSval(typeNode->type, typeNode->sval);
-                size_t k;
-                if (typeCopy == NULL) { astFree(vd); astFree(idList); astFree(varPart); return NULL; }
-                for (k = 0; k < typeNode->childCount; k++) {
-                    astAddChild(typeCopy, typeNode->children[k]);
-                }
-                typeNode->childCount = 0; /* hindari double-free pada children yang dishare */
-                if (!astAddChild(vd, typeCopy)) { astFree(vd); astFree(idList); astFree(varPart); return NULL; }
+                AstNode *typeCopy = cloneAstNode(typeNode);
+                if (typeCopy == NULL) { astFree(vd); astFree(idList); astFree(typeNode); astFree(varPart); return NULL; }
+                if (!astAddChild(vd, typeCopy)) { astFree(typeCopy); astFree(vd); astFree(idList); astFree(typeNode); astFree(varPart); return NULL; }
             }
 
             if (!astAddChild(varPart, vd)) { astFree(idList); astFree(varPart); return NULL; }
@@ -1055,6 +1079,41 @@ static AstNode *buildFactor(const ParseTreeNode *n) {
     return astCreateNode(AST_EMPTY_STMT);
 }
 
+static int addIndexListChildren(AstNode *target, const ParseTreeNode *list) {
+    char buf[256];
+    size_t i;
+
+    if (target == NULL || list == NULL) return 0;
+
+    for (i = 0; i < list->childCount; i++) {
+        const ParseTreeNode *idx = list->children[i];
+        AstNode *idxNode = NULL;
+
+        if (labelEq(idx, "<index-list>")) {
+            if (!addIndexListChildren(target, idx)) return 0;
+            continue;
+        }
+
+        if (labelPrefix(idx, "INTCON(") || labelPrefix(idx, "intcon(")) {
+            extractLexeme(idx->label, buf, sizeof(buf));
+            idxNode = astCreateIval(AST_INT_LIT, atoll(buf));
+        } else if (labelPrefix(idx, "IDENT(") || labelPrefix(idx, "ident(")) {
+            extractLexeme(idx->label, buf, sizeof(buf));
+            idxNode = astCreateSval(AST_VAR, buf);
+        } else if (labelPrefix(idx, "CHARCON(") || labelPrefix(idx, "charcon(")) {
+            extractLexeme(idx->label, buf, sizeof(buf));
+            idxNode = astCreateSval(AST_CHAR_LIT, buf);
+        }
+
+        if (idxNode != NULL && !astAddChild(target, idxNode)) {
+            astFree(idxNode);
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 static AstNode *buildVariable(const ParseTreeNode *n) {
     AstNode *var = NULL;
     char buf[256];
@@ -1076,25 +1135,7 @@ static AstNode *buildVariable(const ParseTreeNode *n) {
                     var = acc;
                     for (j = 0; j < cv->childCount; j++) {
                         if (labelEq(cv->children[j], "<index-list>")) {
-                            size_t k;
-                            const ParseTreeNode *il = cv->children[j];
-                            for (k = 0; k < il->childCount; k++) {
-                                const ParseTreeNode *idx = il->children[k];
-                                AstNode *idxNode = NULL;
-                                if (labelPrefix(idx, "INTCON(") || labelPrefix(idx, "intcon(")) {
-                                    extractLexeme(idx->label, buf, sizeof(buf));
-                                    idxNode = astCreateIval(AST_INT_LIT, atoll(buf));
-                                } else if (labelPrefix(idx, "IDENT(") || labelPrefix(idx, "ident(")) {
-                                    extractLexeme(idx->label, buf, sizeof(buf));
-                                    idxNode = astCreateSval(AST_VAR, buf);
-                                } else if (labelPrefix(idx, "CHARCON(") || labelPrefix(idx, "charcon(")) {
-                                    extractLexeme(idx->label, buf, sizeof(buf));
-                                    idxNode = astCreateSval(AST_CHAR_LIT, buf);
-                                }
-                                if (idxNode != NULL && !astAddChild(var, idxNode)) {
-                                    astFree(idxNode);
-                                }
-                            }
+                            if (!addIndexListChildren(var, cv->children[j])) return NULL;
                         }
                     }
                 }
