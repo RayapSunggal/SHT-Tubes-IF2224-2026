@@ -1,0 +1,12 @@
+program SubrangeDemo;
+
+var
+  index: 1..10;
+  value: integer;
+
+begin
+  index := 5;
+  value := index + 10;
+
+  writeln('Value = ', value);
+end.
