@@ -1,0 +1,19 @@
+program RecordDemo;
+
+type
+  Point = record
+    x: integer;
+    y: integer;
+  end;
+
+var
+  p: Point;
+  sum: integer;
+
+begin
+  p.x := 10;
+  p.y := 20;
+  sum := p.x + p.y;
+
+  writeln('Point sum = ', sum);
+end.
