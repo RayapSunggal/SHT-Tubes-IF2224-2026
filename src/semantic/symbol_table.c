@@ -431,10 +431,10 @@ void symPrint(void) {
         printf(" %3d | %10s | %4d | %s | %s | %3d | %3d | %3d | %3d\n",
                i,
                tab[i].identifier,
-               tab[i].link,
+               tab[i].link < 0 ? 0 : tab[i].link,
                objClassToString(tab[i].obj),
                baseTypeToString(tab[i].type),
-               tab[i].ref,
+               tab[i].ref < 0 ? 0 : tab[i].ref,
                tab[i].nrm,
                tab[i].lev,
                tab[i].adr);
@@ -446,8 +446,8 @@ void symPrint(void) {
     for (int i = 0; i < btabCount; i++) {
         printf(" %3d | %4d | %4d | %4d | %4d\n",
                i,
-               btab[i].last,
-               btab[i].lpar,
+               btab[i].last < 0 ? 0 : btab[i].last,
+               btab[i].lpar < 0 ? 0 : btab[i].lpar,
                btab[i].psze,
                btab[i].vsze);
     }
@@ -460,7 +460,7 @@ void symPrint(void) {
                i,
                baseTypeToString(atab[i].xtyp),
                baseTypeToString(atab[i].etyp),
-               atab[i].eref,
+               atab[i].eref < 0 ? 0 : atab[i].eref,
                atab[i].low,
                atab[i].high,
                atab[i].elsz,

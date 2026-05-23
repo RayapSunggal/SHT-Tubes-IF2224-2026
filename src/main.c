@@ -279,9 +279,9 @@ static void printSymTableToFile(FILE *out) {
     for (int i = 0; i < tabN; i++) {
         if (tab[i].identifier == NULL) continue;
         fprintf(out, " %3d | %10s | %4d | %s | %s | %3d | %3d | %3d | %3d\n",
-                i, tab[i].identifier, tab[i].link,
+                i, tab[i].identifier, tab[i].link < 0 ? 0 : tab[i].link,
                 objClassToString(tab[i].obj), baseTypeToString(tab[i].type),
-                tab[i].ref, tab[i].nrm, tab[i].lev, tab[i].adr);
+                tab[i].ref < 0 ? 0 : tab[i].ref, tab[i].nrm, tab[i].lev, tab[i].adr);
     }
 
     fprintf(out, "\nBTAB:\n");
@@ -289,7 +289,11 @@ static void printSymTableToFile(FILE *out) {
     fprintf(out, "-----+------+------+------+------\n");
     for (int i = 0; i < btabN; i++) {
         fprintf(out, " %3d | %4d | %4d | %4d | %4d\n",
-                i, btab[i].last, btab[i].lpar, btab[i].psze, btab[i].vsze);
+                i,
+                btab[i].last < 0 ? 0 : btab[i].last,
+                btab[i].lpar < 0 ? 0 : btab[i].lpar,
+                btab[i].psze,
+                btab[i].vsze);
     }
 
     fprintf(out, "\nATAB:\n");
@@ -301,7 +305,8 @@ static void printSymTableToFile(FILE *out) {
     for (int i = 0; i < atabN; i++) {
         fprintf(out, " %3d | %5s | %5s | %4d | %3d | %4d | %4d | %4d\n",
                 i, baseTypeToString(atab[i].xtyp), baseTypeToString(atab[i].etyp),
-                atab[i].eref, atab[i].low, atab[i].high, atab[i].elsz, atab[i].size);
+                atab[i].eref < 0 ? 0 : atab[i].eref,
+                atab[i].low, atab[i].high, atab[i].elsz, atab[i].size);
     }
 
     fprintf(out, "\ncurrentLevel = %d\n", currentLevel);
@@ -312,13 +317,12 @@ static void printSymTableToFile(FILE *out) {
 
 static void writeSemanticReport(FILE *stream, bool semOk, const char *semMessage,
                                 const AstNode *decoratedAst) {
-    if (semOk) {
-        fprintf(stream, "Semantic analysis berhasil (tanpa error).\n");
-    } else {
+    if (!semOk) {
         fprintf(stream, "Semantic error: %s\n", semMessage);
+        fprintf(stream, "\n");
     }
 
-    fprintf(stream, "\n=== Decorated AST ===\n");
+    fprintf(stream, "=== Decorated AST ===\n");
     if (decoratedAst != NULL) {
         printDecoratedAst(decoratedAst, stream);
     } else {
@@ -352,8 +356,6 @@ static void runSemanticAnalysis(void) {
         fprintf(stderr, "\nGagal membaca parse tree:\n%s\n\n", semMessage);
         return;
     }
-    printf("\nParse tree berhasil dibaca.\n");
-
     ast = buildAst(parseTree);
     parseTreeFree(parseTree);
 
@@ -378,7 +380,6 @@ static void runSemanticAnalysis(void) {
         printf("\nSemantic error: %s\n", semMessage);
     }
 
-    printf("\n");
     writeSemanticReport(stdout, semOk, semMessage, ast);
 
     out = fopen(outputPath, "w");
