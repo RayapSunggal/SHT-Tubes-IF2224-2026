@@ -1,0 +1,18 @@
+program ProcedureDemo;
+
+var
+  result: integer;
+
+procedure addBonus(base: integer; bonus: integer);
+var
+  localTotal: integer;
+begin
+  localTotal := base + bonus;
+  result := localTotal;
+end;
+
+begin
+  result := 0;
+  addBonus(70, 15);
+  writeln('Result = ', result);
+end.
