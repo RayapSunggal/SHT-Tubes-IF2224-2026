@@ -1,0 +1,8 @@
+program SubrangeError;
+
+var
+  index: 1..10;
+
+begin
+  index := 11;
+end.
