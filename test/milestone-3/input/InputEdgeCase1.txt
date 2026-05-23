@@ -1,0 +1,9 @@
+program UndeclaredVariable;
+
+var
+  a: integer;
+
+begin
+  a := 5;
+  b := a + 1;
+end.
