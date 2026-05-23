@@ -1,0 +1,103 @@
+=== Decorated AST ===
+Program('ArrayDemo')  -> tab_index:38, lev:0
+    |-- DeclPart
+    |   `-- DeclPart
+    |       |-- VarDecl('numbers')  -> type:array, tab_index:39, lev:0
+    |       |   `-- ArrayType  -> type:array
+    |       |       |-- Range  -> type:integer
+    |       |       |   |-- IntLit(1)
+    |       |       |   `-- IntLit(5)
+    |       |       `-- TypeIdent('integer')
+    |       |-- VarDecl('i')  -> type:integer, tab_index:40, lev:0
+    |       |   `-- TypeIdent('integer')
+    |       `-- VarDecl('total')  -> type:integer, tab_index:41, lev:0
+    |           `-- TypeIdent('integer')
+    `-- Compound  -> type:void, lev:1
+        `-- StmtList  -> type:void, lev:1
+            |-- Assign  -> type:void, tab_index:40, lev:0
+            |   |-- Var('i')  -> type:integer, tab_index:40, lev:0
+            |   `-- IntLit(1)  -> type:integer
+            |-- Assign  -> type:void, tab_index:39, lev:0
+            |   |-- ArrayAccess  -> type:integer, tab_index:39, lev:0
+            |   |   |-- Var('numbers')  -> type:array, tab_index:39, lev:0
+            |   |   `-- Var('i')  -> type:integer, tab_index:40, lev:0
+            |   `-- IntLit(10)  -> type:integer
+            |-- Assign  -> type:void, tab_index:39, lev:0
+            |   |-- ArrayAccess  -> type:integer, tab_index:39, lev:0
+            |   |   |-- Var('numbers')  -> type:array, tab_index:39, lev:0
+            |   |   `-- IntLit(2)  -> type:integer
+            |   `-- IntLit(20)  -> type:integer
+            |-- Assign  -> type:void, tab_index:41, lev:0
+            |   |-- Var('total')  -> type:integer, tab_index:41, lev:0
+            |   `-- BinOp('plus')  -> type:integer
+            |       |-- ArrayAccess  -> type:integer, tab_index:39, lev:0
+            |       |   |-- Var('numbers')  -> type:array, tab_index:39, lev:0
+            |       |   `-- Var('i')  -> type:integer, tab_index:40, lev:0
+            |       `-- ArrayAccess  -> type:integer, tab_index:39, lev:0
+            |           |-- Var('numbers')  -> type:array, tab_index:39, lev:0
+            |           `-- IntLit(2)  -> type:integer
+            `-- ProcCall('writeln')  -> type:void, tab_index:34, lev:0
+                `-- ParamList
+                    |-- StringLit('Total = ')  -> type:string
+                    `-- Var('total')  -> type:integer, tab_index:41, lev:0
+
+=== Symbol Table ===
+TAB:
+ idx | identifier | link | obj | type | ref | nrm | lev | adr
+-----+------------+------+------+------+-----+-----+-----+-----
+   0 |        and |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   1 |      array |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   2 |      begin |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   3 |       case |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   4 |      const |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   5 |        div |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   6 |     downto |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   7 |         do |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   8 |       else |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   9 |        end |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  10 |        for |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  11 |   function |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  12 |         if |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  13 |        mod |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  14 |        not |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  15 |         of |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  16 |         or |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  17 |  procedure |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  18 |    program |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  19 |     record |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  20 |     repeat |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  21 |    integer |    0 | OBJ_TYPE | TYPE_INTEGER |   0 |   0 |   0 |   0
+  22 |       real |    0 | OBJ_TYPE | TYPE_REAL |   0 |   0 |   0 |   0
+  23 |    boolean |    0 | OBJ_TYPE | TYPE_BOOLEAN |   0 |   0 |   0 |   0
+  24 |       char |    0 | OBJ_TYPE | TYPE_CHAR |   0 |   0 |   0 |   0
+  25 |     string |    0 | OBJ_TYPE | TYPE_STRING |   0 |   0 |   0 |   0
+  26 |       then |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  27 |         to |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  28 |       type |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  29 |      until |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  30 |        var |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  31 |      while |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  32 |       true |    0 | OBJ_CONSTANT | TYPE_BOOLEAN |   0 |   1 |   0 |   1
+  33 |      false |    0 | OBJ_CONSTANT | TYPE_BOOLEAN |   0 |   1 |   0 |   0
+  34 |    writeln |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  35 |     readln |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  36 |      write |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  37 |       read |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  38 |  ArrayDemo |    0 | OBJ_PROGRAM | TYPE_VOID |   0 |   1 |   0 |   0
+  39 |    numbers |   38 | OBJ_VARIABLE | TYPE_ARRAY |   0 |   1 |   0 |   0
+  40 |          i |   39 | OBJ_VARIABLE | TYPE_INTEGER |   0 |   1 |   0 |   5
+  41 |      total |   40 | OBJ_VARIABLE | TYPE_INTEGER |   0 |   1 |   0 |   6
+
+BTAB:
+ idx | last | lpar | psze | vsze
+-----+------+------+------+------
+   0 |   41 |    0 |    0 |    7
+   1 |    0 |    0 |    0 |    0
+
+ATAB:
+ idx | xtyp | etyp | eref | low | high | elsz | size
+-----+------+------+------+-----+------+------+------
+   0 | TYPE_INTEGER | TYPE_INTEGER |    0 |   1 |    5 |    1 |    5
+
+currentLevel = 0
+display[0] = 0

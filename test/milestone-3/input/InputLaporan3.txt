@@ -1,0 +1,15 @@
+program ArrayDemo;
+
+var
+  numbers: array[1..5] of integer;
+  i: integer;
+  total: integer;
+
+begin
+  i := 1;
+  numbers[i] := 10;
+  numbers[2] := 20;
+  total := numbers[i] + numbers[2];
+
+  writeln('Total = ', total);
+end.
