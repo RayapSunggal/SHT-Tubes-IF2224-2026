@@ -1,0 +1,13 @@
+program ArrayIndexError;
+
+var
+  numbers: array[1..5] of integer;
+  i: integer;
+  flag: boolean;
+
+begin
+  i := 3;
+  flag := true;
+  numbers[i] := 10;
+  numbers[flag] := 20;
+end.
