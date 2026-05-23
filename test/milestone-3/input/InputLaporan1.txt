@@ -1,0 +1,21 @@
+program ScoreCalculator;
+
+var
+  baseScore, bonusScore, finalScore: integer;
+  passed: boolean;
+
+begin
+  baseScore := 70;
+  bonusScore := 15;
+  finalScore := baseScore + bonusScore;
+  passed := finalScore >= 75;
+
+  if passed then
+  begin
+    writeln('Student passed with score = ', finalScore);
+  end
+  else
+  begin
+    writeln('Student failed with score = ', finalScore);
+  end;
+end.
