@@ -1,0 +1,11 @@
+program OperatorTypeError;
+
+var
+  a: integer;
+  text: string;
+
+begin
+  a := 5;
+  text := 'hello';
+  a := a + text;
+end.
