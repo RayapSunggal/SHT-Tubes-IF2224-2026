@@ -1,0 +1,18 @@
+program PredefinedDemo;
+
+var
+  age: integer;
+  score: real;
+  passed: boolean;
+  initial: char;
+  message: string;
+
+begin
+  age := 20;
+  score := 95.5;
+  passed := true;
+  initial := 'A';
+  message := 'Semantic OK';
+
+  writeln(message, age, score, passed, initial);
+end.
