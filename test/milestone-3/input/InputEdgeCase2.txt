@@ -1,0 +1,9 @@
+program RedeclarationDemo;
+
+var
+  count: integer;
+  count: real;
+
+begin
+  count := 10;
+end.
