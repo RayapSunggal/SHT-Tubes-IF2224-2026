@@ -1,0 +1,10 @@
+program AssignmentTypeError;
+
+var
+  total: integer;
+  name: string;
+
+begin
+  name := 'Audric';
+  total := name;
+end.
