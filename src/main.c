@@ -6,6 +6,8 @@
 #include "ast/ast_builder.h"
 #include "ast/ast_node.h"
 #include "fileio/fileio.h"
+#include "intermediate/intermediate_code_generator.h"
+#include "runtime/stack_machine_executor.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "semantic/ast_decorator.h"
@@ -16,6 +18,8 @@
 #define SYNTAX_OUTPUT_DIR "test/milestone-2/output"
 #define SEMANTIC_INPUT_DIR  "test/milestone-3/input"
 #define SEMANTIC_OUTPUT_DIR "test/milestone-3/output"
+#define MILESTONE4_INPUT_DIR  "test/milestone-4/input"
+#define MILESTONE4_OUTPUT_DIR "test/milestone-4/output"
 
 static bool fileExists(const char *path) {
     FILE *fp=fopen(path, "r");
@@ -391,11 +395,180 @@ static void runSemanticAnalysis(void) {
     printf("\n");
 }
 
+static bool promptMilestone4Paths(char *inputPath, size_t inputPathSize,
+                                  char *outputPath, size_t outputPathSize) {
+    bool validInput;
+    char inputName[NAME_MAX_LEN];
+
+    do {
+        validInput = false;
+        printf("Masukkan nama file source milestone 4 (ketik 'back' untuk kembali): ");
+        if (scanf("%255s", inputName) != 1) {
+            clearInputBuffer();
+            return false;
+        }
+
+        if (strcmp(inputName, "back") == 0) {
+            return false;
+        }
+
+        if (!buildPathFromName(MILESTONE4_INPUT_DIR, inputName, inputPath, inputPathSize)) {
+            fprintf(stderr, "Nama file input tidak valid.\n\n");
+            continue;
+        }
+
+        validInput = fileExists(inputPath);
+        if (!validInput) {
+            fprintf(stderr, "File input tidak ditemukan: %s\n\n", inputPath);
+        }
+    } while (!validInput);
+
+    if (!buildPathFromName(MILESTONE4_OUTPUT_DIR, inputName, outputPath, outputPathSize)) {
+        fprintf(stderr, "Nama file output tidak valid.\n\n");
+        return false;
+    }
+
+    return true;
+}
+
+static void writeMilestone4Report(FILE *stream,
+                                  bool semOk,
+                                  const char *semMessage,
+                                  const AstNode *decoratedAst,
+                                  bool icOk,
+                                  const char *icMessage,
+                                  const InstructionList *instructions,
+                                  bool runtimeOk,
+                                  const char *runtimeMessage,
+                                  const char *runtimeOutput) {
+    if (stream == NULL) {
+        return;
+    }
+
+    if (!semOk) {
+        fprintf(stream, "Semantic error: %s\n\n", semMessage != NULL ? semMessage : "-");
+    }
+
+    fprintf(stream, "=== Decorated AST ===\n");
+    if (decoratedAst != NULL) {
+        printDecoratedAst(decoratedAst, stream);
+    } else {
+        fprintf(stream, "(AST tidak dapat dibentuk dari parse tree)\n");
+    }
+
+    fprintf(stream, "\n=== Intermediate Code ===\n");
+    if (icOk && instructions != NULL) {
+        instructionListPrint(instructions, stream);
+    } else {
+        fprintf(stream, "Intermediate Code error: %s\n", icMessage != NULL ? icMessage : "-");
+    }
+
+    fprintf(stream, "\n=== Runtime Output ===\n");
+    if (runtimeOk) {
+        fprintf(stream, "%s", runtimeOutput != NULL ? runtimeOutput : "");
+    } else {
+        fprintf(stream, "Runtime error: %s\n", runtimeMessage != NULL ? runtimeMessage : "-");
+    }
+}
+
+static void runMilestone4StackExecution(void) {
+    char inputPath[IO_MAX_PATH];
+    char outputPath[IO_MAX_PATH];
+    SyntaxResult syntaxResult;
+    AstNode *ast = NULL;
+    char semMessage[2048];
+    char astMessage[2048];
+    char icMessage[2048];
+    bool semOk = false;
+    bool icOk = false;
+    bool runtimeOk = false;
+    InstructionList instructions;
+    StackMachineExecutor executor;
+    FILE *out;
+
+    instructionListInit(&instructions);
+    stackMachineExecutorInit(&executor);
+    semMessage[0] = '\0';
+    astMessage[0] = '\0';
+    icMessage[0] = '\0';
+
+    if (!promptMilestone4Paths(inputPath, sizeof(inputPath),
+                               outputPath, sizeof(outputPath))) {
+        stackMachineExecutorDestroy(&executor);
+        return;
+    }
+
+    (void)ensureMilestoneDirectories();
+
+    if (!analyzeSyntaxFile(inputPath, &syntaxResult)) {
+        fprintf(stderr, "\nSyntax analysis gagal:\n%s\n\n", syntaxResult.message);
+        freeSyntaxResult(&syntaxResult);
+        stackMachineExecutorDestroy(&executor);
+        return;
+    }
+
+    ast = buildAst(syntaxResult.tree);
+    freeSyntaxResult(&syntaxResult);
+
+    if (ast == NULL) {
+        snprintf(semMessage, sizeof(semMessage),
+                 "Gagal membangun AST dari parse tree.");
+    } else {
+        symInit();
+        semOk = decorateAst(ast, astMessage, sizeof(astMessage));
+        if (!semOk) {
+            snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
+        }
+    }
+
+    if (semOk) {
+        icOk = intermediateCodeGenerate(ast, &instructions, icMessage, sizeof(icMessage));
+    }
+
+    if (icOk) {
+        runtimeOk = stackMachineExecute(&executor, &instructions);
+    }
+
+    writeMilestone4Report(stdout,
+                          semOk,
+                          semMessage,
+                          ast,
+                          icOk,
+                          icMessage,
+                          &instructions,
+                          runtimeOk,
+                          stackMachineError(&executor),
+                          stackMachineOutput(&executor));
+
+    out = fopen(outputPath, "w");
+    if (out == NULL) {
+        fprintf(stderr, "\nGagal membuat file output: %s\n\n", outputPath);
+    } else {
+        writeMilestone4Report(out,
+                              semOk,
+                              semMessage,
+                              ast,
+                              icOk,
+                              icMessage,
+                              &instructions,
+                              runtimeOk,
+                              stackMachineError(&executor),
+                              stackMachineOutput(&executor));
+        fclose(out);
+        printf("\nOutput tersimpan di: %s\n\n", outputPath);
+    }
+
+    instructionListFree(&instructions);
+    stackMachineExecutorDestroy(&executor);
+    astFree(ast);
+}
+
 static bool promptAnalysisMode(int *mode) {
     printf("Pilih mode analisis:\n");
     printf("1. Lexical Analysis\n");
     printf("2. Syntax Analysis\n");
     printf("3. Semantic Analysis\n");
+    printf("4. Intermediate Code + Stack Machine Execution\n");
     printf("0. Exit\n");
     printf("Masukkan pilihan: ");
 
@@ -430,8 +603,11 @@ int main(void) {
         else if (mode==3) {
             runSemanticAnalysis();
         }
+        else if (mode==4) {
+            runMilestone4StackExecution();
+        }
         else {
-            fprintf(stderr, "Pilihan tidak valid. Gunakan 0, 1, 2, atau 3.\n\n");
+            fprintf(stderr, "Pilihan tidak valid. Gunakan 0, 1, 2, 3, atau 4.\n\n");
         }
     }
 }
