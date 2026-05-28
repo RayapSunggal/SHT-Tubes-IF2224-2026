@@ -503,6 +503,19 @@ static BaseType visitFieldAccess(AstNode *node) {
 
 static BaseType visitCall(AstNode *node) {
     int idx = symLookup(node->sval);
+    if (idx != -1 && tab[idx].obj != OBJ_PROCEDURE && tab[idx].obj != OBJ_FUNCTION) {
+        idx = -1;
+    }
+    if (idx == -1 && node->sval != NULL) {
+        for (int i = symTabCount() - 1; i >= 0; i--) {
+            if (tab[i].identifier != NULL &&
+                strcasecmp(tab[i].identifier, node->sval) == 0 &&
+                (tab[i].obj == OBJ_PROCEDURE || tab[i].obj == OBJ_FUNCTION)) {
+                idx = i;
+                break;
+            }
+        }
+    }
     if (idx == -1) {
         semError("Procedure/function '%s' belum dideklarasikan.",
                  node->sval ? node->sval : "?");
@@ -877,6 +890,7 @@ static void visitFor(AstNode *node) {
     }
 
     size_t exprSeen = 0;
+    tab[idx].initialized = true;
     for (size_t i = 0; i < node->childCount; i++) {
         AstNode *c = node->children[i];
         if (c->type == AST_COMPOUND) {
@@ -894,7 +908,6 @@ static void visitFor(AstNode *node) {
             exprSeen++;
         }
     }
-    tab[idx].initialized = true;
 }
 
 static void visitRepeat(AstNode *node) {

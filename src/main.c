@@ -457,14 +457,20 @@ static void writeMilestone4Report(FILE *stream,
     }
 
     fprintf(stream, "\n=== Intermediate Code ===\n");
-    if (icOk && instructions != NULL) {
+    if (!semOk) {
+        fprintf(stream, "Intermediate Code skipped: analisis source tidak valid.\n");
+    } else if (icOk && instructions != NULL) {
         instructionListPrint(instructions, stream);
     } else {
         fprintf(stream, "Intermediate Code error: %s\n", icMessage != NULL ? icMessage : "-");
     }
 
     fprintf(stream, "\n=== Runtime Output ===\n");
-    if (runtimeOk) {
+    if (!semOk) {
+        fprintf(stream, "Runtime skipped: analisis source tidak valid.\n");
+    } else if (!icOk) {
+        fprintf(stream, "Runtime skipped: Intermediate Code tidak valid.\n");
+    } else if (runtimeOk) {
         fprintf(stream, "%s", runtimeOutput != NULL ? runtimeOutput : "");
     } else {
         fprintf(stream, "Runtime error: %s\n", runtimeMessage != NULL ? runtimeMessage : "-");
@@ -492,32 +498,29 @@ static void runMilestone4StackExecution(void) {
     astMessage[0] = '\0';
     icMessage[0] = '\0';
 
+    (void)ensureMilestoneDirectories();
+
     if (!promptMilestone4Paths(inputPath, sizeof(inputPath),
                                outputPath, sizeof(outputPath))) {
         stackMachineExecutorDestroy(&executor);
         return;
     }
 
-    (void)ensureMilestoneDirectories();
-
     if (!analyzeSyntaxFile(inputPath, &syntaxResult)) {
-        fprintf(stderr, "\nSyntax analysis gagal:\n%s\n\n", syntaxResult.message);
+        snprintf(semMessage, sizeof(semMessage), "Syntax analysis gagal: %.2000s", syntaxResult.message);
         freeSyntaxResult(&syntaxResult);
-        stackMachineExecutorDestroy(&executor);
-        return;
-    }
-
-    ast = buildAst(syntaxResult.tree);
-    freeSyntaxResult(&syntaxResult);
-
-    if (ast == NULL) {
-        snprintf(semMessage, sizeof(semMessage),
-                 "Gagal membangun AST dari parse tree.");
     } else {
-        symInit();
-        semOk = decorateAst(ast, astMessage, sizeof(astMessage));
-        if (!semOk) {
-            snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
+        ast = buildAst(syntaxResult.tree);
+        freeSyntaxResult(&syntaxResult);
+
+        if (ast == NULL) {
+            snprintf(semMessage, sizeof(semMessage), "Gagal membangun AST dari parse tree.");
+        } else {
+            symInit();
+            semOk = decorateAst(ast, astMessage, sizeof(astMessage));
+            if (!semOk) {
+                snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
+            }
         }
     }
 

@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <string.h>
-// helper
 
 static int labelEq(const ParseTreeNode *n, const char *lbl) {
     return n != NULL && strcmp(n->label, lbl) == 0;
@@ -831,8 +830,20 @@ static AstNode *buildCaseStatement(const ParseTreeNode *n) {
             AstNode *expr = buildExpression(c);
             if (expr == NULL || !astAddChild(cas, expr)) { astFree(cas); return NULL; }
         } else if (labelEq(c, "<case-block>")) {
-            AstNode *cb = buildCaseBlock(c);
-            if (cb == NULL || !astAddChild(cas, cb)) { astFree(cas); return NULL; }
+            const ParseTreeNode *chain = c;
+            while (chain != NULL && labelEq(chain, "<case-block>")) {
+                AstNode *cb = buildCaseBlock(chain);
+                const ParseTreeNode *next = NULL;
+                size_t j;
+                if (cb == NULL || !astAddChild(cas, cb)) { astFree(cas); return NULL; }
+                for (j = 0; j < chain->childCount; j++) {
+                    if (labelEq(chain->children[j], "<case-block>")) {
+                        next = chain->children[j];
+                        break;
+                    }
+                }
+                chain = next;
+            }
         }
     }
 

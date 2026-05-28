@@ -7,11 +7,16 @@
 
 #include "../runtime/runtime_value.h"
 
+#define IC_FRAME_ADDRESS_BASE (-1073741824LL)
+
 typedef enum {
     OPCODE_INT,
     OPCODE_LIT,
     OPCODE_LOD,
     OPCODE_STO,
+    OPCODE_CAL,
+    OPCODE_JMP,
+    OPCODE_JPC,
     OPCODE_OPR,
     OPCODE_RET
 } Opcode;
@@ -49,6 +54,7 @@ typedef struct {
 void instructionListInit(InstructionList *list);
 void instructionListFree(InstructionList *list);
 bool instructionListEmit(InstructionList *list, Instruction instruction);
+bool instructionListPatchOperand(InstructionList *list, size_t index, long long operand);
 
 Instruction instructionCreate(Opcode opcode, int level, long long operand);
 Instruction instructionCreateLiteral(RuntimeValue value);
