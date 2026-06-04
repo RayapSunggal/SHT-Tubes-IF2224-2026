@@ -78,15 +78,21 @@ int symEnter(const char *name, ObjClass obj, BaseType type, int ref, int nrm, in
 void symSetRange(int idx, BaseType rangeBase, int low, int high);
 int symLookup(const char *name);
 int symEnterArray(BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz);
+bool symLoadTabEntry(int idx, const char *name, ObjClass obj, BaseType type, int link, int ref, int nrm, int lev, int adr);
+bool symLoadBtabEntry(int idx, int last, int lpar, int psze, int vsze);
+bool symLoadAtabEntry(int idx, BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz, int size);
 void symPrint(void);
 
 int symTabCount(void);
 int symBtabCount(void);
 int symAtabCount(void);
+int symFrameOffsetForTabIndex(int tabIndex);
+int symFrameSlotCountForBlock(int blockIndex);
+int symBlockForTabIndex(int tabIndex);
 
 const char *objClassToString(ObjClass obj);
 const char *baseTypeToString(BaseType type);
 int sizeOfBaseType(BaseType type);
 int sizeOfType(BaseType type, int ref);
 
-#endif // SYMBOL_TABLE_H
+#endif

@@ -407,6 +407,128 @@ int symEnterArray(BaseType xtyp, BaseType etyp, int eref, int low, int high, int
     return idx;
 }
 
+bool symLoadTabEntry(int idx, const char *name, ObjClass obj, BaseType type, int link, int ref, int nrm, int lev, int adr) {
+    if (idx < 0 || idx >= MAX_TAB || name == NULL) {
+        return false;
+    }
+
+    free(tab[idx].identifier);
+    initializeTabEntry(&tab[idx]);
+    tab[idx].identifier = copyString(name);
+    if (tab[idx].identifier == NULL) {
+        return false;
+    }
+    tab[idx].link = link;
+    tab[idx].obj = obj;
+    tab[idx].type = type;
+    tab[idx].ref = ref;
+    tab[idx].nrm = nrm;
+    tab[idx].lev = lev;
+    tab[idx].adr = adr;
+    tab[idx].initialized = true;
+
+    if (idx + 1 > tabCount) {
+        tabCount = idx + 1;
+    }
+
+    return true;
+}
+
+bool symLoadBtabEntry(int idx, int last, int lpar, int psze, int vsze) {
+    if (idx < 0 || idx >= MAX_BTAB) {
+        return false;
+    }
+
+    initializeBtabEntry(&btab[idx]);
+    btab[idx].last = last;
+    btab[idx].lpar = lpar;
+    btab[idx].psze = psze;
+    btab[idx].vsze = vsze;
+
+    if (idx + 1 > btabCount) {
+        btabCount = idx + 1;
+    }
+
+    return true;
+}
+
+bool symLoadAtabEntry(int idx, BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz, int size) {
+    if (idx < 0 || idx >= MAX_ATAB || low > high || elsz < 0 || size < 0) {
+        return false;
+    }
+
+    initializeAtabEntry(&atab[idx]);
+    atab[idx].xtyp = xtyp;
+    atab[idx].etyp = etyp;
+    atab[idx].eref = eref;
+    atab[idx].low = low;
+    atab[idx].high = high;
+    atab[idx].elsz = elsz;
+    atab[idx].size = size;
+
+    if (idx + 1 > atabCount) {
+        atabCount = idx + 1;
+    }
+
+    return true;
+}
+
+int symBlockForTabIndex(int tabIndex) {
+    if (tabIndex < 0 || tabIndex >= tabCount) {
+        return -1;
+    }
+
+    for (int b = 0; b < btabCount; b++) {
+        int current = btab[b].last;
+        while (current != -1) {
+            if (current == tabIndex) {
+                return b;
+            }
+            current = tab[current].link;
+        }
+    }
+
+    return -1;
+}
+
+int symFrameOffsetForTabIndex(int tabIndex) {
+    int blockIndex = symBlockForTabIndex(tabIndex);
+    int offset = 0;
+
+    if (blockIndex < 0 || tabIndex < 0 || tabIndex >= tabCount || tab[tabIndex].obj != OBJ_VARIABLE) {
+        return -1;
+    }
+
+    for (int i = 0; i < tabCount; i++) {
+        if (symBlockForTabIndex(i) != blockIndex || tab[i].obj != OBJ_VARIABLE) {
+            continue;
+        }
+        if (i == tabIndex) {
+            return offset;
+        }
+        offset += sizeOfType(tab[i].type, tab[i].ref) > 0 ? sizeOfType(tab[i].type, tab[i].ref) : 1;
+    }
+
+    return -1;
+}
+
+int symFrameSlotCountForBlock(int blockIndex) {
+    int slots = 0;
+
+    if (blockIndex < 0 || blockIndex >= btabCount) {
+        return 0;
+    }
+
+    for (int i = 0; i < tabCount; i++) {
+        if (symBlockForTabIndex(i) == blockIndex && tab[i].obj == OBJ_VARIABLE) {
+            int size = sizeOfType(tab[i].type, tab[i].ref);
+            slots += size > 0 ? size : 1;
+        }
+    }
+
+    return slots;
+}
+
 int symTabCount(void) {
     return tabCount;
 }
