@@ -11,6 +11,14 @@
 #define STACK_MACHINE_DEFAULT_MAX_STACK 4096
 #define STACK_MACHINE_DEFAULT_MAX_CALL_DEPTH 1024
 #define STACK_MACHINE_FRAME_CANARY 0x4D344341u
+#define STACK_MACHINE_MAX_DISPLAY 64
+
+typedef struct {
+    bool active;
+    size_t bp;
+    size_t slots;
+    int blockIndex;
+} RuntimeFrameRef;
 
 typedef struct {
     RuntimeStack stack;
@@ -20,6 +28,9 @@ typedef struct {
     size_t bp;
     size_t frameSlots;
     long long returnOffset;
+    int currentFrameLexLevel;
+    int currentFrameBlockIndex;
+    RuntimeFrameRef display[STACK_MACHINE_MAX_DISPLAY];
     char *output;
     size_t outputLength;
     size_t outputCapacity;

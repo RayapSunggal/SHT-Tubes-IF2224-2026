@@ -8,6 +8,7 @@
 #include "../runtime/runtime_value.h"
 
 #define IC_FRAME_ADDRESS_BASE (-1073741824LL)
+#define IC_FRAME_ADDRESS_LEVEL_STRIDE 1000000LL
 
 typedef enum {
     OPCODE_INT,
@@ -41,13 +42,15 @@ typedef enum {
     /*
      * Internal extensions, intentionally placed after the guidebook range:
      * RDIV forces Pascal real division, TO_REAL preserves decorated-AST
-     * integer-to-real assignment semantics, and the error operations surface
+     * integer-to-real assignment semantics, TO_CHAR restores char-typed loop
+     * counters after arithmetic increments, and the error operations surface
      * array/subrange runtime validation with precise messages.
      */
     OPR_RDIV = 15,
     OPR_TO_REAL = 16,
     OPR_INDEX_ERROR = 17,
-    OPR_RANGE_ERROR = 18
+    OPR_RANGE_ERROR = 18,
+    OPR_TO_CHAR = 19
 } OprCode;
 
 typedef struct {

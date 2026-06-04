@@ -1,0 +1,6 @@
+program TestRealConst;
+const
+  pi = 3.14;
+begin
+  writeln(pi);
+end.

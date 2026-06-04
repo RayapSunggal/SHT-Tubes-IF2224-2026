@@ -144,6 +144,12 @@ static int compilerTempAddress(int tempIndex) {
     return IC_RESERVED_RUNTIME_CELLS + globalDataSize() + tempIndex;
 }
 
+static long long frameAddressForLexicalLevel(int lexLevel, int offset) {
+    return IC_FRAME_ADDRESS_BASE -
+           ((long long)lexLevel * IC_FRAME_ADDRESS_LEVEL_STRIDE) +
+           (long long)offset;
+}
+
 int intermediateCodeRuntimeAddressForTabIndex(int tabIndex) {
     int address;
     int count = symTabCount();
@@ -160,7 +166,10 @@ int intermediateCodeRuntimeAddressForTabIndex(int tabIndex) {
     if (address < 0) {
         return -1;
     }
-    return (int)(IC_FRAME_ADDRESS_BASE + address);
+    if (address >= IC_FRAME_ADDRESS_LEVEL_STRIDE) {
+        return -1;
+    }
+    return (int)frameAddressForLexicalLevel(tab[tabIndex].lev, address);
 }
 
 int intermediateCodeGlobalMemorySize(void) {
@@ -225,6 +234,45 @@ static const AstNode *findSubprogramNode(GeneratorContext *ctx, int tabIndex) {
     }
 
     return findSubprogramNodeRec(ctx->root, tabIndex, name);
+}
+
+static const AstNode *findConstDeclNodeRec(const AstNode *node, int tabIndex, const char *name) {
+    const AstNode *found;
+
+    if (node == NULL) {
+        return NULL;
+    }
+
+    if (node->type == AST_CONST_DECL) {
+        if ((node->tabIdx >= 0 && node->tabIdx == tabIndex) ||
+            (node->tabIdx < 0 && sameName(node->sval, name))) {
+            return node;
+        }
+    }
+
+    for (size_t i = 0; i < node->childCount; i++) {
+        found = findConstDeclNodeRec(node->children[i], tabIndex, name);
+        if (found != NULL) {
+            return found;
+        }
+    }
+
+    return NULL;
+}
+
+static const AstNode *findConstValueNode(GeneratorContext *ctx, int tabIndex) {
+    const char *name = NULL;
+    const AstNode *decl;
+
+    if (tabIndex >= 0 && tabIndex < symTabCount()) {
+        name = tab[tabIndex].identifier;
+    }
+
+    decl = findConstDeclNodeRec(ctx->root, tabIndex, name);
+    if (decl == NULL || decl->childCount < 1) {
+        return NULL;
+    }
+    return decl->children[0];
 }
 
 static bool defineLabel(GeneratorContext *ctx, int tabIndex, size_t line) {
@@ -313,18 +361,32 @@ static bool generateStatement(GeneratorContext *ctx, const AstNode *node);
 static bool generateAddress(GeneratorContext *ctx, const AstNode *node);
 
 static bool emitConstantLoad(GeneratorContext *ctx, int tabIndex) {
+    const AstNode *valueNode = findConstValueNode(ctx, tabIndex);
+
     switch (tab[tabIndex].type) {
         case TYPE_INTEGER:
             return emitLiteral(ctx, runtimeValueInteger(tab[tabIndex].adr));
+        case TYPE_REAL:
+            if (valueNode != NULL) {
+                return generateExpression(ctx, valueNode);
+            }
+            break;
         case TYPE_BOOLEAN:
             return emitLiteral(ctx, runtimeValueBoolean(tab[tabIndex].adr != 0));
         case TYPE_CHAR:
             return emitLiteral(ctx, runtimeValueChar((char)tab[tabIndex].adr));
+        case TYPE_STRING:
+            if (valueNode != NULL) {
+                return generateExpression(ctx, valueNode);
+            }
+            break;
         default:
-            setError(ctx, "Intermediate Code Error: konstanta '%s' belum dapat dimuat.",
-                     tab[tabIndex].identifier != NULL ? tab[tabIndex].identifier : "?");
-            return false;
+            break;
     }
+
+    setError(ctx, "Intermediate Code Error: konstanta '%s' belum dapat dimuat.",
+             tab[tabIndex].identifier != NULL ? tab[tabIndex].identifier : "?");
+    return false;
 }
 
 static bool emitIntegerLiteral(GeneratorContext *ctx, long long value) {
@@ -377,7 +439,13 @@ static bool directVariableReferenceForIndex(GeneratorContext *ctx,
         return false;
     }
 
-    ref->level = 2;
+    if (address >= IC_FRAME_ADDRESS_LEVEL_STRIDE) {
+        setError(ctx, "Intermediate Code Error: offset frame '%s' terlalu besar.",
+                 name != NULL ? name : "?");
+        return false;
+    }
+
+    ref->level = tab[idx].lev + 1;
     ref->operand = address;
     return true;
 }
@@ -1068,6 +1136,7 @@ static bool generateFor(GeneratorContext *ctx, const AstNode *node) {
         !emitSimple(ctx, OPCODE_LOD, ref.level, ref.operand) ||
         !emitLiteral(ctx, runtimeValueInteger(1)) ||
         !emitSimple(ctx, OPCODE_OPR, 0, stepOp) ||
+        (tab[idx].type == TYPE_CHAR && !emitSimple(ctx, OPCODE_OPR, 0, OPR_TO_CHAR)) ||
         !emitValueGuardsForTabIndex(ctx, idx, tab[idx].type) ||
         !emitSimple(ctx, OPCODE_STO, ref.level, ref.operand) ||
         !emitSimple(ctx, OPCODE_JMP, 0, (long long)loopStart)) {

@@ -11,11 +11,24 @@
 
 #define ARION_INT_MIN (-2147483647LL - 1LL)
 #define ARION_INT_MAX 2147483647LL
-#define FRAME_META_COUNT 5
+#define FRAME_META_COUNT 11
 
 static void clearError(StackMachineExecutor *executor) {
     if (executor != NULL) {
         executor->error[0] = '\0';
+    }
+}
+
+static void clearRuntimeDisplay(StackMachineExecutor *executor) {
+    if (executor == NULL) {
+        return;
+    }
+
+    for (size_t i = 0; i < STACK_MACHINE_MAX_DISPLAY; i++) {
+        executor->display[i].active = false;
+        executor->display[i].bp = 0;
+        executor->display[i].slots = 0;
+        executor->display[i].blockIndex = -1;
     }
 }
 
@@ -312,11 +325,15 @@ static bool pushCallFrame(StackMachineExecutor *executor, const Instruction *ins
     int slotCount = 0;
     int paramSlots = 0;
     int returnOffset = -1;
+    int calleeLexLevel = -1;
     RuntimeValue *slots = NULL;
+    RuntimeFrameRef previousDisplay;
     size_t frameBp;
     size_t previousBp = executor->bp;
     size_t previousSlots = executor->frameSlots;
     long long previousReturnOffset = executor->returnOffset;
+    int previousFrameLexLevel = executor->currentFrameLexLevel;
+    int previousFrameBlockIndex = executor->currentFrameBlockIndex;
 
     if (executor->callDepth >= executor->maxCallDepth) {
         setRuntimeError(executor, instruction, "Stack Overflow");
@@ -329,7 +346,14 @@ static bool pushCallFrame(StackMachineExecutor *executor, const Instruction *ins
         slotCount = symFrameSlotCountForBlock(blockIndex);
         paramSlots = parameterSlotCount(blockIndex);
         returnOffset = functionReturnOffset(calleeIndex);
+        calleeLexLevel = tab[calleeIndex].lev + 1;
     }
+
+    if (calleeLexLevel <= 0 || calleeLexLevel >= STACK_MACHINE_MAX_DISPLAY) {
+        setRuntimeError(executor, instruction, "Invalid Call Target");
+        return false;
+    }
+    previousDisplay = executor->display[calleeLexLevel];
 
     if (!buildFrameSlots(executor, instruction, blockIndex, slotCount, paramSlots, &slots)) {
         return false;
@@ -362,6 +386,12 @@ static bool pushCallFrame(StackMachineExecutor *executor, const Instruction *ins
     if (!pushInteger(executor, instruction, (long long)previousBp) ||
         !pushInteger(executor, instruction, (long long)previousSlots) ||
         !pushInteger(executor, instruction, previousReturnOffset) ||
+        !pushInteger(executor, instruction, (long long)previousFrameLexLevel) ||
+        !pushInteger(executor, instruction, (long long)previousFrameBlockIndex) ||
+        !pushInteger(executor, instruction, previousDisplay.active ? 1 : 0) ||
+        !pushInteger(executor, instruction, (long long)previousDisplay.bp) ||
+        !pushInteger(executor, instruction, (long long)previousDisplay.slots) ||
+        !pushInteger(executor, instruction, (long long)previousDisplay.blockIndex) ||
         !pushInteger(executor, instruction, (long long)returnPc) ||
         !pushInteger(executor, instruction, STACK_MACHINE_FRAME_CANARY)) {
         return false;
@@ -370,6 +400,12 @@ static bool pushCallFrame(StackMachineExecutor *executor, const Instruction *ins
     executor->bp = frameBp;
     executor->frameSlots = (size_t)slotCount;
     executor->returnOffset = returnOffset;
+    executor->currentFrameLexLevel = calleeLexLevel;
+    executor->currentFrameBlockIndex = blockIndex;
+    executor->display[calleeLexLevel].active = true;
+    executor->display[calleeLexLevel].bp = frameBp;
+    executor->display[calleeLexLevel].slots = (size_t)slotCount;
+    executor->display[calleeLexLevel].blockIndex = blockIndex;
     executor->callDepth++;
     return true;
 }
@@ -379,8 +415,15 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
     long long previousBp;
     long long previousSlots;
     long long previousReturnOffset;
+    long long previousFrameLexLevel;
+    long long previousFrameBlockIndex;
+    long long previousDisplayActive;
+    long long previousDisplayBp;
+    long long previousDisplaySlots;
+    long long previousDisplayBlockIndex;
     long long returnTarget;
     long long canary;
+    int calleeLexLevel = executor->currentFrameLexLevel;
     RuntimeValue returnValue = runtimeValueNone();
     bool hasReturnValue = false;
 
@@ -397,8 +440,14 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
     if (!stackReadInteger(executor, instruction, metaStart, &previousBp) ||
         !stackReadInteger(executor, instruction, metaStart + 1, &previousSlots) ||
         !stackReadInteger(executor, instruction, metaStart + 2, &previousReturnOffset) ||
-        !stackReadInteger(executor, instruction, metaStart + 3, &returnTarget) ||
-        !stackReadInteger(executor, instruction, metaStart + 4, &canary)) {
+        !stackReadInteger(executor, instruction, metaStart + 3, &previousFrameLexLevel) ||
+        !stackReadInteger(executor, instruction, metaStart + 4, &previousFrameBlockIndex) ||
+        !stackReadInteger(executor, instruction, metaStart + 5, &previousDisplayActive) ||
+        !stackReadInteger(executor, instruction, metaStart + 6, &previousDisplayBp) ||
+        !stackReadInteger(executor, instruction, metaStart + 7, &previousDisplaySlots) ||
+        !stackReadInteger(executor, instruction, metaStart + 8, &previousDisplayBlockIndex) ||
+        !stackReadInteger(executor, instruction, metaStart + 9, &returnTarget) ||
+        !stackReadInteger(executor, instruction, metaStart + 10, &canary)) {
         return false;
     }
 
@@ -423,6 +472,14 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
     executor->bp = previousBp < 0 ? 0 : (size_t)previousBp;
     executor->frameSlots = previousSlots < 0 ? 0 : (size_t)previousSlots;
     executor->returnOffset = previousReturnOffset;
+    if (calleeLexLevel > 0 && calleeLexLevel < STACK_MACHINE_MAX_DISPLAY) {
+        executor->display[calleeLexLevel].active = previousDisplayActive != 0;
+        executor->display[calleeLexLevel].bp = previousDisplayBp < 0 ? 0 : (size_t)previousDisplayBp;
+        executor->display[calleeLexLevel].slots = previousDisplaySlots < 0 ? 0 : (size_t)previousDisplaySlots;
+        executor->display[calleeLexLevel].blockIndex = (int)previousDisplayBlockIndex;
+    }
+    executor->currentFrameLexLevel = (int)previousFrameLexLevel;
+    executor->currentFrameBlockIndex = (int)previousFrameBlockIndex;
     executor->callDepth--;
 
     if (hasReturnValue) {
@@ -473,9 +530,27 @@ static bool popAddress(StackMachineExecutor *executor, const Instruction *instru
     return true;
 }
 
-static bool decodeFrameAddress(long long address, size_t *offset) {
+static bool decodeFrameAddress(long long address, int *lexLevel, size_t *offset) {
     if (address >= IC_FRAME_ADDRESS_BASE && address < 0) {
+        if (lexLevel != NULL) {
+            *lexLevel = -1;
+        }
         *offset = (size_t)(address - IC_FRAME_ADDRESS_BASE);
+        return true;
+    }
+    if (address < IC_FRAME_ADDRESS_BASE) {
+        long long delta = IC_FRAME_ADDRESS_BASE - address;
+        long long level = (delta + IC_FRAME_ADDRESS_LEVEL_STRIDE - 1) /
+                          IC_FRAME_ADDRESS_LEVEL_STRIDE;
+        long long remainder = (level * IC_FRAME_ADDRESS_LEVEL_STRIDE) - delta;
+
+        if (level <= 0 || level >= STACK_MACHINE_MAX_DISPLAY || remainder < 0) {
+            return false;
+        }
+        if (lexLevel != NULL) {
+            *lexLevel = (int)level;
+        }
+        *offset = (size_t)remainder;
         return true;
     }
     return false;
@@ -495,6 +570,48 @@ static bool frameSet(StackMachineExecutor *executor, const Instruction *instruct
         return false;
     }
     return stackSetAt(executor, instruction, executor->bp + offset, value);
+}
+
+static bool frameGetAtLexLevel(StackMachineExecutor *executor,
+                               const Instruction *instruction,
+                               int lexLevel,
+                               size_t offset,
+                               RuntimeValue *out) {
+    RuntimeFrameRef *frame;
+
+    if (lexLevel <= 0 || lexLevel >= STACK_MACHINE_MAX_DISPLAY) {
+        setRuntimeError(executor, instruction, "Invalid lexical frame level %d", lexLevel);
+        return false;
+    }
+
+    frame = &executor->display[lexLevel];
+    if (!frame->active || offset >= frame->slots) {
+        setRuntimeError(executor, instruction, "Stack Frame Access Out of Bounds");
+        return false;
+    }
+
+    return stackGetAt(executor, instruction, frame->bp + offset, out);
+}
+
+static bool frameSetAtLexLevel(StackMachineExecutor *executor,
+                               const Instruction *instruction,
+                               int lexLevel,
+                               size_t offset,
+                               RuntimeValue value) {
+    RuntimeFrameRef *frame;
+
+    if (lexLevel <= 0 || lexLevel >= STACK_MACHINE_MAX_DISPLAY) {
+        setRuntimeError(executor, instruction, "Invalid lexical frame level %d", lexLevel);
+        return false;
+    }
+
+    frame = &executor->display[lexLevel];
+    if (!frame->active || offset >= frame->slots) {
+        setRuntimeError(executor, instruction, "Stack Frame Access Out of Bounds");
+        return false;
+    }
+
+    return stackSetAt(executor, instruction, frame->bp + offset, value);
 }
 
 static bool checkedIntResult(StackMachineExecutor *executor, const Instruction *instruction, long long value) {
@@ -712,6 +829,34 @@ static bool executeToReal(StackMachineExecutor *executor, const Instruction *ins
     return ok;
 }
 
+static bool executeToChar(StackMachineExecutor *executor, const Instruction *instruction) {
+    RuntimeValue value = runtimeValueNone();
+    RuntimeValue result;
+    long long codePoint;
+    bool ok;
+
+    if (!stackPop(executor, instruction, &value)) {
+        return false;
+    }
+    if (!runtimeValueIsNumeric(value)) {
+        runtimeValueFree(&value);
+        setRuntimeError(executor, instruction, "TO_CHAR requires numeric operand");
+        return false;
+    }
+
+    codePoint = runtimeValueAsInteger(value);
+    runtimeValueFree(&value);
+    if (codePoint < 0 || codePoint > 255) {
+        setRuntimeError(executor, instruction, "TO_CHAR code point %lld outside range 0..255", codePoint);
+        return false;
+    }
+
+    result = runtimeValueChar((char)(unsigned char)codePoint);
+    ok = stackPush(executor, instruction, result);
+    runtimeValueFree(&result);
+    return ok;
+}
+
 static bool executeRangeError(StackMachineExecutor *executor,
                               const Instruction *instruction,
                               const char *name,
@@ -774,6 +919,8 @@ static bool executeOpr(StackMachineExecutor *executor, const Instruction *instru
         /* Internal OPR extensions above the guidebook range 1..14. */
         case OPR_TO_REAL:
             return executeToReal(executor, instruction);
+        case OPR_TO_CHAR:
+            return executeToChar(executor, instruction);
         case OPR_INDEX_ERROR:
             return executeRangeError(executor, instruction, "IndexOutOfBoundsException", "index");
         case OPR_RANGE_ERROR:
@@ -807,11 +954,14 @@ void stackMachineExecutorInit(StackMachineExecutor *executor) {
     executor->bp = 0;
     executor->frameSlots = 0;
     executor->returnOffset = -1;
+    executor->currentFrameLexLevel = 0;
+    executor->currentFrameBlockIndex = -1;
     executor->output = NULL;
     executor->outputLength = 0;
     executor->outputCapacity = 0;
     executor->pc = 0;
     executor->stopped = false;
+    clearRuntimeDisplay(executor);
     clearError(executor);
 }
 
@@ -838,6 +988,9 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
     executor->bp = 0;
     executor->frameSlots = 0;
     executor->returnOffset = -1;
+    executor->currentFrameLexLevel = 0;
+    executor->currentFrameBlockIndex = -1;
+    clearRuntimeDisplay(executor);
     executor->outputLength = 0;
     if (executor->output != NULL) {
         executor->output[0] = '\0';
@@ -869,18 +1022,26 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
             case OPCODE_LOD: {
                 RuntimeValue value = runtimeValueNone();
                 long long address = instruction->operand;
+                int frameLexLevel = -1;
                 size_t frameOffset;
                 if (instruction->level == 1 && !popAddress(executor, instruction, &address)) {
                     return false;
                 }
-                if (instruction->level == 2) {
+                if (instruction->level >= 2) {
                     if (instruction->operand < 0 ||
-                        !frameGet(executor, instruction, (size_t)instruction->operand, &value)) {
+                        !frameGetAtLexLevel(executor,
+                                            instruction,
+                                            instruction->level - 1,
+                                            (size_t)instruction->operand,
+                                            &value)) {
                         runtimeValueFree(&value);
                         return false;
                     }
-                } else if (instruction->level == 1 && decodeFrameAddress(address, &frameOffset)) {
-                    if (!frameGet(executor, instruction, frameOffset, &value)) {
+                } else if (instruction->level == 1 && decodeFrameAddress(address, &frameLexLevel, &frameOffset)) {
+                    bool ok = frameLexLevel > 0 ?
+                        frameGetAtLexLevel(executor, instruction, frameLexLevel, frameOffset, &value) :
+                        frameGet(executor, instruction, frameOffset, &value);
+                    if (!ok) {
                         runtimeValueFree(&value);
                         return false;
                     }
@@ -904,6 +1065,7 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
             case OPCODE_STO: {
                 RuntimeValue value = runtimeValueNone();
                 long long address = instruction->operand;
+                int frameLexLevel = -1;
                 size_t frameOffset;
                 if (instruction->level == 1 && !popAddress(executor, instruction, &address)) {
                     return false;
@@ -911,14 +1073,21 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
                 if (!stackPop(executor, instruction, &value)) {
                     return false;
                 }
-                if (instruction->level == 2) {
+                if (instruction->level >= 2) {
                     if (instruction->operand < 0 ||
-                        !frameSet(executor, instruction, (size_t)instruction->operand, value)) {
+                        !frameSetAtLexLevel(executor,
+                                            instruction,
+                                            instruction->level - 1,
+                                            (size_t)instruction->operand,
+                                            value)) {
                         runtimeValueFree(&value);
                         return false;
                     }
-                } else if (instruction->level == 1 && decodeFrameAddress(address, &frameOffset)) {
-                    if (!frameSet(executor, instruction, frameOffset, value)) {
+                } else if (instruction->level == 1 && decodeFrameAddress(address, &frameLexLevel, &frameOffset)) {
+                    bool ok = frameLexLevel > 0 ?
+                        frameSetAtLexLevel(executor, instruction, frameLexLevel, frameOffset, value) :
+                        frameSet(executor, instruction, frameOffset, value);
+                    if (!ok) {
                         runtimeValueFree(&value);
                         return false;
                     }

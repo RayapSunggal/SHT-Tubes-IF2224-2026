@@ -124,6 +124,7 @@ const char *oprCodeName(int code) {
         case OPR_TO_REAL: return "TO_REAL";
         case OPR_INDEX_ERROR: return "INDEX_ERROR";
         case OPR_RANGE_ERROR: return "RANGE_ERROR";
+        case OPR_TO_CHAR: return "TO_CHAR";
         default:        return "UNKNOWN";
     }
 }

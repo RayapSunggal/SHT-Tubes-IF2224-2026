@@ -1,0 +1,6 @@
+program TestStringConst;
+const
+  msg = 'hello';
+begin
+  writeln(msg);
+end.

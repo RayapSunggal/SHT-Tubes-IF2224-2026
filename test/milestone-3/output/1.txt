@@ -1,0 +1,114 @@
+=== Decorated AST ===
+Program('NestedDemo')  -> tab_index:38, lev:0
+    |-- DeclPart
+    |   |-- DeclPart
+    |   |   `-- VarDecl('g')  -> type:integer, tab_index:39, lev:0
+    |   |       `-- TypeIdent('integer')
+    |   `-- ProcDecl('outer')  -> tab_index:40, lev:0
+    |       |-- ParamList
+    |       |   `-- ParamGroup
+    |       |       |-- IdentList
+    |       |       |   `-- Var('a')  -> type:integer, tab_index:41, lev:1
+    |       |       `-- TypeIdent('integer')
+    |       `-- Block
+    |           |-- DeclPart
+    |           |   |-- DeclPart
+    |           |   |   `-- VarDecl('x')  -> type:integer, tab_index:42, lev:1
+    |           |   |       `-- TypeIdent('integer')
+    |           |   `-- ProcDecl('inner')  -> tab_index:43, lev:1
+    |           |       |-- ParamList
+    |           |       |   `-- ParamGroup
+    |           |       |       |-- IdentList
+    |           |       |       |   `-- Var('b')  -> type:integer, tab_index:44, lev:2
+    |           |       |       `-- TypeIdent('integer')
+    |           |       `-- Block
+    |           |           |-- DeclPart
+    |           |           `-- Compound  -> type:void, lev:2
+    |           |               `-- StmtList  -> type:void, lev:2
+    |           |                   `-- Assign  -> type:void, tab_index:42, lev:1
+    |           |                       |-- Var('x')  -> type:integer, tab_index:42, lev:1
+    |           |                       `-- BinOp('plus')  -> type:integer
+    |           |                           |-- Var('b')  -> type:integer, tab_index:44, lev:2
+    |           |                           `-- IntLit(1)  -> type:integer
+    |           `-- Compound  -> type:void, lev:1
+    |               `-- StmtList  -> type:void, lev:1
+    |                   |-- ProcCall('inner')  -> type:void, tab_index:43, lev:1
+    |                   |   `-- ParamList
+    |                   |       `-- Var('a')  -> type:integer, tab_index:41, lev:1
+    |                   `-- Assign  -> type:void, tab_index:39, lev:0
+    |                       |-- Var('g')  -> type:integer, tab_index:39, lev:0
+    |                       `-- Var('x')  -> type:integer, tab_index:42, lev:1
+    `-- Compound  -> type:void, lev:1
+        `-- StmtList  -> type:void, lev:1
+            |-- ProcCall('outer')  -> type:void, tab_index:40, lev:0
+            |   `-- ParamList
+            |       `-- IntLit(9)  -> type:integer
+            `-- ProcCall('writeln')  -> type:void, tab_index:34, lev:0
+                `-- ParamList
+                    `-- Var('g')  -> type:integer, tab_index:39, lev:0
+
+=== Symbol Table ===
+TAB:
+ idx | identifier | link | obj | type | ref | nrm | lev | adr
+-----+------------+------+------+------+-----+-----+-----+-----
+   0 |        and |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   1 |      array |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   2 |      begin |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   3 |       case |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   4 |      const |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   5 |        div |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   6 |     downto |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   7 |         do |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   8 |       else |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+   9 |        end |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  10 |        for |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  11 |   function |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  12 |         if |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  13 |        mod |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  14 |        not |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  15 |         of |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  16 |         or |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  17 |  procedure |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  18 |    program |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  19 |     record |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  20 |     repeat |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  21 |    integer |    0 | OBJ_TYPE | TYPE_INTEGER |   0 |   0 |   0 |   0
+  22 |       real |    0 | OBJ_TYPE | TYPE_REAL |   0 |   0 |   0 |   0
+  23 |    boolean |    0 | OBJ_TYPE | TYPE_BOOLEAN |   0 |   0 |   0 |   0
+  24 |       char |    0 | OBJ_TYPE | TYPE_CHAR |   0 |   0 |   0 |   0
+  25 |     string |    0 | OBJ_TYPE | TYPE_STRING |   0 |   0 |   0 |   0
+  26 |       then |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  27 |         to |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  28 |       type |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  29 |      until |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  30 |        var |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  31 |      while |    0 | OBJ_TYPE | TYPE_NONE |   0 |   0 |   0 |   0
+  32 |       true |    0 | OBJ_CONSTANT | TYPE_BOOLEAN |   0 |   1 |   0 |   1
+  33 |      false |    0 | OBJ_CONSTANT | TYPE_BOOLEAN |   0 |   1 |   0 |   0
+  34 |    writeln |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  35 |     readln |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  36 |      write |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  37 |       read |    0 | OBJ_PROCEDURE | TYPE_VOID |   0 |  -1 |   0 |   0
+  38 | NestedDemo |    0 | OBJ_PROGRAM | TYPE_VOID |   0 |   1 |   0 |   0
+  39 |          g |   38 | OBJ_VARIABLE | TYPE_INTEGER |   0 |   1 |   0 |   0
+  40 |      outer |   39 | OBJ_PROCEDURE | TYPE_VOID |   1 |   1 |   0 |   0
+  41 |          a |    0 | OBJ_VARIABLE | TYPE_INTEGER |   0 |   0 |   1 |   0
+  42 |          x |   41 | OBJ_VARIABLE | TYPE_INTEGER |   0 |   1 |   1 |   0
+  43 |      inner |   42 | OBJ_PROCEDURE | TYPE_VOID |   2 |   1 |   1 |   0
+  44 |          b |    0 | OBJ_VARIABLE | TYPE_INTEGER |   0 |   0 |   2 |   0
+
+BTAB:
+ idx | last | lpar | psze | vsze
+-----+------+------+------+------
+   0 |   40 |    0 |    0 |    1
+   1 |   43 |   41 |    1 |    1
+   2 |   44 |   44 |    1 |    0
+   3 |    0 |    0 |    0 |    0
+
+ATAB:
+ idx | xtyp | etyp | eref | low | high | elsz | size
+-----+------+------+------+-----+------+------+------
+ (kosong - tidak ada array)
+
+currentLevel = 0
+display[0] = 0
