@@ -1,8 +1,15 @@
 #include "fileio.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 
 static bool hasTxtExtension(const char *name) {
     size_t len=strlen(name);
@@ -35,6 +42,51 @@ static bool normalizeName(const char *rawName, char *normalized, size_t normaliz
 }
 
 bool ensureMilestoneDirectories(void) {
+#ifdef _WIN32
+    const char *dirs[] = {
+        "test",
+        "test/milestone-1",
+        "test/milestone-1/input",
+        "test/milestone-1/output",
+        "test/milestone-2",
+        "test/milestone-2/input",
+        "test/milestone-2/output",
+        "test/milestone-3",
+        "test/milestone-3/input",
+        "test/milestone-3/output",
+        "test/milestone-4",
+        "test/milestone-4/input",
+        "test/milestone-4/output"
+    };
+
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+        if (_mkdir(dirs[i]) != 0 && errno != EEXIST) {
+            return false;
+        }
+    }
+#else
+    const char *dirs[] = {
+        "test",
+        "test/milestone-1",
+        "test/milestone-1/input",
+        "test/milestone-1/output",
+        "test/milestone-2",
+        "test/milestone-2/input",
+        "test/milestone-2/output",
+        "test/milestone-3",
+        "test/milestone-3/input",
+        "test/milestone-3/output",
+        "test/milestone-4",
+        "test/milestone-4/input",
+        "test/milestone-4/output"
+    };
+
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+        if (mkdir(dirs[i], 0777) != 0 && errno != EEXIST) {
+            return false;
+        }
+    }
+#endif
     return true;
 }
 
