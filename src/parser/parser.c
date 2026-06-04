@@ -2054,11 +2054,6 @@ static ParseTreeNode *parseWhileStatement(Parser *ps) {
         return NULL;
     }
 
-    if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
-        parseTreeFree(node);
-        return NULL;
-    }
-
     return node;
 }
 
@@ -2152,11 +2147,6 @@ static ParseTreeNode *parseForStatement(Parser *ps) {
 
     compoundNode=parseCompoundStatement(ps);
     if (compoundNode==NULL || !parserAttachChild(ps, node, compoundNode)) {
-        parseTreeFree(node);
-        return NULL;
-    }
-
-    if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -2664,7 +2654,7 @@ static Node *convertWhileStatementNode(Parser *ps, ParseTreeNode *src) {
         return NULL;
     }
 
-    /* Struktur M3: whilesy expr dosy compound-statement semicolon */
+    /* <compound-statement> ends at endsy; semicolon is handled by <statement-list>. */
     for (i=0; i < src->childCount; i++) {
         Node *child=convertParseTreeToGrammarNode(ps, src->children[i]);
 
@@ -2686,7 +2676,7 @@ static Node *convertForStatementNode(Parser *ps, ParseTreeNode *src) {
         return NULL;
     }
 
-    /* Struktur M3: forsy ident becomes expr (tosy|downtosy) expr dosy compound-statement semicolon */
+    /* <compound-statement> ends at endsy; semicolon is handled by <statement-list>. */
     for (i=0; i < src->childCount; i++) {
         Node *child=convertParseTreeToGrammarNode(ps, src->children[i]);
 
