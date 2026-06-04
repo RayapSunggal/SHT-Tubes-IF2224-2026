@@ -7,16 +7,22 @@
 
 #include "../runtime/runtime_value.h"
 
+#define IC_FRAME_ADDRESS_BASE (-1073741824LL)
+
 typedef enum {
     OPCODE_INT,
     OPCODE_LIT,
     OPCODE_LOD,
     OPCODE_STO,
+    OPCODE_CAL,
+    OPCODE_JMP,
+    OPCODE_JPC,
     OPCODE_OPR,
     OPCODE_RET
 } Opcode;
 
 typedef enum {
+    /* OPR 1..14 follow the Milestone 4 guidebook convention. */
     OPR_NEG = 1,
     OPR_ADD = 2,
     OPR_SUB = 3,
@@ -30,7 +36,18 @@ typedef enum {
     OPR_GTR = 11,
     OPR_LEQ = 12,
     OPR_WRT = 13,
-    OPR_WRTLN = 14
+    OPR_WRTLN = 14,
+
+    /*
+     * Internal extensions, intentionally placed after the guidebook range:
+     * RDIV forces Pascal real division, TO_REAL preserves decorated-AST
+     * integer-to-real assignment semantics, and the error operations surface
+     * array/subrange runtime validation with precise messages.
+     */
+    OPR_RDIV = 15,
+    OPR_TO_REAL = 16,
+    OPR_INDEX_ERROR = 17,
+    OPR_RANGE_ERROR = 18
 } OprCode;
 
 typedef struct {
@@ -49,6 +66,7 @@ typedef struct {
 void instructionListInit(InstructionList *list);
 void instructionListFree(InstructionList *list);
 bool instructionListEmit(InstructionList *list, Instruction instruction);
+bool instructionListPatchOperand(InstructionList *list, size_t index, long long operand);
 
 Instruction instructionCreate(Opcode opcode, int level, long long operand);
 Instruction instructionCreateLiteral(RuntimeValue value);

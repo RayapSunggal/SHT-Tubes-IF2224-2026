@@ -7,7 +7,6 @@ void instructionListInit(InstructionList *list) {
     if (list == NULL) {
         return;
     }
-
     list->items = NULL;
     list->count = 0;
     list->capacity = 0;
@@ -17,11 +16,9 @@ void instructionListFree(InstructionList *list) {
     if (list == NULL) {
         return;
     }
-
     for (size_t i = 0; i < list->count; i++) {
         instructionFree(&list->items[i]);
     }
-
     free(list->items);
     instructionListInit(list);
 }
@@ -48,6 +45,14 @@ bool instructionListEmit(InstructionList *list, Instruction instruction) {
     return true;
 }
 
+bool instructionListPatchOperand(InstructionList *list, size_t index, long long operand) {
+    if (list == NULL || index >= list->count) {
+        return false;
+    }
+    list->items[index].operand = operand;
+    return true;
+}
+
 Instruction instructionCreate(Opcode opcode, int level, long long operand) {
     Instruction instruction;
 
@@ -70,7 +75,6 @@ Instruction instructionCreateLiteral(RuntimeValue value) {
 
 Instruction instructionCopy(Instruction instruction) {
     Instruction copy = instruction;
-
     copy.literal = runtimeValueCopy(instruction.literal);
     return copy;
 }
@@ -79,7 +83,6 @@ void instructionFree(Instruction *instruction) {
     if (instruction == NULL) {
         return;
     }
-
     runtimeValueFree(&instruction->literal);
     instruction->opcode = OPCODE_RET;
     instruction->level = 0;
@@ -92,6 +95,9 @@ const char *opcodeMnemonic(Opcode opcode) {
         case OPCODE_LIT: return "LIT";
         case OPCODE_LOD: return "LOD";
         case OPCODE_STO: return "STO";
+        case OPCODE_CAL: return "CAL";
+        case OPCODE_JMP: return "JMP";
+        case OPCODE_JPC: return "JPC";
         case OPCODE_OPR: return "OPR";
         case OPCODE_RET: return "RET";
         default:         return "???";
@@ -114,6 +120,10 @@ const char *oprCodeName(int code) {
         case OPR_LEQ:   return "LEQ";
         case OPR_WRT:   return "WRT";
         case OPR_WRTLN: return "WRTLN";
+        case OPR_RDIV:  return "RDIV";
+        case OPR_TO_REAL: return "TO_REAL";
+        case OPR_INDEX_ERROR: return "INDEX_ERROR";
+        case OPR_RANGE_ERROR: return "RANGE_ERROR";
         default:        return "UNKNOWN";
     }
 }
@@ -127,7 +137,7 @@ bool oprCodeFromOperator(const char *operatorName, OprCode *code) {
     if (strcmp(operatorName, "minus") == 0) { *code = OPR_SUB; return true; }
     if (strcmp(operatorName, "times") == 0) { *code = OPR_MUL; return true; }
     if (strcmp(operatorName, "idiv") == 0)  { *code = OPR_DIV; return true; }
-    if (strcmp(operatorName, "rdiv") == 0)  { *code = OPR_DIV; return true; }
+    if (strcmp(operatorName, "rdiv") == 0)  { *code = OPR_RDIV; return true; }
     if (strcmp(operatorName, "imod") == 0)  { *code = OPR_MOD; return true; }
     if (strcmp(operatorName, "eql") == 0)   { *code = OPR_EQL; return true; }
     if (strcmp(operatorName, "neq") == 0)   { *code = OPR_NEQ; return true; }
@@ -148,26 +158,19 @@ void instructionPrint(const Instruction *instruction, size_t line, FILE *stream)
 
     if (instruction->opcode == OPCODE_LIT) {
         runtimeValueToString(instruction->literal, operand, sizeof(operand));
-        fprintf(stream, "%zu %s %d %s\n",
-                line,
-                opcodeMnemonic(instruction->opcode),
-                instruction->level,
-                operand);
+        fprintf(stream, "%zu %s %d %s\n", line, opcodeMnemonic(instruction->opcode),
+                instruction->level, operand);
         return;
     }
 
-    fprintf(stream, "%zu %s %d %lld\n",
-            line,
-            opcodeMnemonic(instruction->opcode),
-            instruction->level,
-            instruction->operand);
+    fprintf(stream, "%zu %s %d %lld\n", line, opcodeMnemonic(instruction->opcode),
+            instruction->level, instruction->operand);
 }
 
 void instructionListPrint(const InstructionList *list, FILE *stream) {
     if (list == NULL || stream == NULL) {
         return;
     }
-
     for (size_t i = 0; i < list->count; i++) {
         instructionPrint(&list->items[i], i, stream);
     }
