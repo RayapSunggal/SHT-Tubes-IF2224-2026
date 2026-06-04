@@ -1,0 +1,8 @@
+Semantic error: Syntax analysis gagal: Ditemukan error syntax:
+Line 9 near unknown (!): Invalid token.
+
+=== Intermediate Code ===
+Intermediate Code skipped: analisis source tidak valid.
+
+=== Runtime Output ===
+Runtime skipped: analisis source tidak valid.

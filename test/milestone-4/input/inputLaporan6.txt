@@ -1,0 +1,12 @@
+program TestWhile;
+var
+  i: integer;
+begin
+  i := 3;
+  while i > 0 do
+  begin
+    writeln(i);
+    i := i - 1;
+  end;
+end.
+

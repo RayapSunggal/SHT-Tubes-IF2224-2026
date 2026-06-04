@@ -1,0 +1,21 @@
+=== Intermediate Code ===
+0 INT 0 9
+1 JMP 0 2
+2 LIT 0 2
+3 STO 0 3
+4 LIT 0 3
+5 STO 0 4
+6 LIT 0 4
+7 STO 0 5
+8 LOD 0 3
+9 LOD 0 4
+10 OPR 0 2
+11 LOD 0 5
+12 OPR 0 4
+13 STO 0 6
+14 LOD 0 6
+15 OPR 0 14
+16 RET 0 0
+
+=== Runtime Output ===
+20

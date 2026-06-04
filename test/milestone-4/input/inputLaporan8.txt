@@ -1,0 +1,11 @@
+program TestWriteln;
+var
+  x, y: integer;
+begin
+  x := 4;
+  y := 6;
+  writeln(x);
+  writeln(y);
+  writeln(x + y);
+end.
+

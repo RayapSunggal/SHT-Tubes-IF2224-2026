@@ -1,0 +1,10 @@
+program TestArithmetic;
+var
+  a, b, c, result: integer;
+begin
+  a := 2;
+  b := 3;
+  c := 4;
+  result := (a + b) * c;
+  writeln(result);
+end.

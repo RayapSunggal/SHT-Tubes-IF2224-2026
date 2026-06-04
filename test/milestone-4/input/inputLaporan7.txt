@@ -1,0 +1,14 @@
+program TestMemoryPersistence;
+var
+  i, total: integer;
+begin
+  i := 1;
+  total := 0;
+  while i <= 5 do
+  begin
+    total := total + i;
+    i := i + 1;
+  end;
+  writeln(total);
+end.
+

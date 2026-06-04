@@ -1,0 +1,11 @@
+program TestComparison;
+var
+  a, b: integer;
+begin
+  a := 10;
+  b := 5;
+  writeln(a > b);
+  writeln(a == b);
+  writeln(a != b);
+end.
+

@@ -1,0 +1,14 @@
+program TestOperators;
+var
+  a, b: integer;
+begin
+  a := 17;
+  b := 5;
+  writeln(-a);
+  writeln(a + b);
+  writeln(a - b);
+  writeln(a * b);
+  writeln(a div b);
+  writeln(a mod b);
+end.
+

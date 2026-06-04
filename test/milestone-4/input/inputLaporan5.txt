@@ -1,0 +1,12 @@
+program TestIfElse;
+var
+  score, result: integer;
+begin
+  score := 75;
+  if score >= 60 then
+    result := 1
+  else
+    result := 0;
+  writeln(result);
+end.
+
