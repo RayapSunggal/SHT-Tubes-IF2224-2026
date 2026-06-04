@@ -1,9 +1,0 @@
-=== Intermediate Code ===
-0 INT 0 5
-1 JMP 0 2
-2 LIT 0 3.14
-3 OPR 0 14
-4 RET 0 0
-
-=== Runtime Output ===
-3.14
