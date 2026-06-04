@@ -93,6 +93,37 @@ bool runtimeStackPeek(const RuntimeStack *stack, RuntimeValue *out, char *error,
     return true;
 }
 
+bool runtimeStackGetAt(const RuntimeStack *stack, size_t index, RuntimeValue *out, char *error, size_t errorSize) {
+    if (stack == NULL || out == NULL) {
+        setError(error, errorSize, "Runtime Error: Stack is not initialized");
+        return false;
+    }
+
+    if (index >= stack->count) {
+        setError(error, errorSize, "Runtime Error: Stack Frame Access Out of Bounds");
+        return false;
+    }
+
+    *out = runtimeValueCopy(stack->items[index]);
+    return true;
+}
+
+bool runtimeStackSetAt(RuntimeStack *stack, size_t index, RuntimeValue value, char *error, size_t errorSize) {
+    if (stack == NULL) {
+        setError(error, errorSize, "Runtime Error: Stack is not initialized");
+        return false;
+    }
+
+    if (index >= stack->count) {
+        setError(error, errorSize, "Runtime Error: Stack Frame Access Out of Bounds");
+        return false;
+    }
+
+    runtimeValueFree(&stack->items[index]);
+    stack->items[index] = runtimeValueCopy(value);
+    return true;
+}
+
 bool runtimeStackIsEmpty(const RuntimeStack *stack) {
     return stack == NULL || stack->count == 0;
 }
@@ -110,4 +141,22 @@ void runtimeStackClear(RuntimeStack *stack) {
         runtimeValueFree(&stack->items[i]);
     }
     stack->count = 0;
+}
+
+bool runtimeStackTruncate(RuntimeStack *stack, size_t newSize, char *error, size_t errorSize) {
+    if (stack == NULL) {
+        setError(error, errorSize, "Runtime Error: Stack is not initialized");
+        return false;
+    }
+
+    if (newSize > stack->count) {
+        setError(error, errorSize, "Runtime Error: Stack Corruption detected");
+        return false;
+    }
+
+    for (size_t i = newSize; i < stack->count; i++) {
+        runtimeValueFree(&stack->items[i]);
+    }
+    stack->count = newSize;
+    return true;
 }

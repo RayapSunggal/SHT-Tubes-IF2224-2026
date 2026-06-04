@@ -8,11 +8,18 @@
 #include "runtime_memory.h"
 #include "runtime_stack.h"
 
-#define STACK_MACHINE_DEFAULT_MAX_STACK 1024
+#define STACK_MACHINE_DEFAULT_MAX_STACK 4096
+#define STACK_MACHINE_DEFAULT_MAX_CALL_DEPTH 1024
+#define STACK_MACHINE_FRAME_CANARY 0x4D344341u
 
 typedef struct {
     RuntimeStack stack;
     RuntimeMemory memory;
+    size_t callDepth;
+    size_t maxCallDepth;
+    size_t bp;
+    size_t frameSlots;
+    long long returnOffset;
     char *output;
     size_t outputLength;
     size_t outputCapacity;

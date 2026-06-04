@@ -18,8 +18,11 @@ void runtimeStackDestroy(RuntimeStack *stack);
 bool runtimeStackPush(RuntimeStack *stack, RuntimeValue value, char *error, size_t errorSize);
 bool runtimeStackPop(RuntimeStack *stack, RuntimeValue *out, char *error, size_t errorSize);
 bool runtimeStackPeek(const RuntimeStack *stack, RuntimeValue *out, char *error, size_t errorSize);
+bool runtimeStackGetAt(const RuntimeStack *stack, size_t index, RuntimeValue *out, char *error, size_t errorSize);
+bool runtimeStackSetAt(RuntimeStack *stack, size_t index, RuntimeValue value, char *error, size_t errorSize);
 bool runtimeStackIsEmpty(const RuntimeStack *stack);
 size_t runtimeStackSize(const RuntimeStack *stack);
 void runtimeStackClear(RuntimeStack *stack);
+bool runtimeStackTruncate(RuntimeStack *stack, size_t newSize, char *error, size_t errorSize);
 
 #endif
