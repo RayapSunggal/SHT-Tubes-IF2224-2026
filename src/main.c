@@ -434,7 +434,6 @@ static bool promptMilestone4Paths(char *inputPath, size_t inputPathSize,
 static void writeMilestone4Report(FILE *stream,
                                   bool semOk,
                                   const char *semMessage,
-                                  const AstNode *decoratedAst,
                                   bool icOk,
                                   const char *icMessage,
                                   const InstructionList *instructions,
@@ -449,22 +448,21 @@ static void writeMilestone4Report(FILE *stream,
         fprintf(stream, "Semantic error: %s\n\n", semMessage != NULL ? semMessage : "-");
     }
 
-    fprintf(stream, "=== Decorated AST ===\n");
-    if (decoratedAst != NULL) {
-        printDecoratedAst(decoratedAst, stream);
-    } else {
-        fprintf(stream, "(AST tidak dapat dibentuk dari parse tree)\n");
-    }
-
-    fprintf(stream, "\n=== Intermediate Code ===\n");
-    if (icOk && instructions != NULL) {
+    fprintf(stream, "=== Intermediate Code ===\n");
+    if (!semOk) {
+        fprintf(stream, "Intermediate Code skipped: analisis source tidak valid.\n");
+    } else if (icOk && instructions != NULL) {
         instructionListPrint(instructions, stream);
     } else {
         fprintf(stream, "Intermediate Code error: %s\n", icMessage != NULL ? icMessage : "-");
     }
 
     fprintf(stream, "\n=== Runtime Output ===\n");
-    if (runtimeOk) {
+    if (!semOk) {
+        fprintf(stream, "Runtime skipped: analisis source tidak valid.\n");
+    } else if (!icOk) {
+        fprintf(stream, "Runtime skipped: Intermediate Code tidak valid.\n");
+    } else if (runtimeOk) {
         fprintf(stream, "%s", runtimeOutput != NULL ? runtimeOutput : "");
     } else {
         fprintf(stream, "Runtime error: %s\n", runtimeMessage != NULL ? runtimeMessage : "-");
@@ -492,32 +490,29 @@ static void runMilestone4StackExecution(void) {
     astMessage[0] = '\0';
     icMessage[0] = '\0';
 
+    (void)ensureMilestoneDirectories();
+
     if (!promptMilestone4Paths(inputPath, sizeof(inputPath),
                                outputPath, sizeof(outputPath))) {
         stackMachineExecutorDestroy(&executor);
         return;
     }
 
-    (void)ensureMilestoneDirectories();
-
     if (!analyzeSyntaxFile(inputPath, &syntaxResult)) {
-        fprintf(stderr, "\nSyntax analysis gagal:\n%s\n\n", syntaxResult.message);
+        snprintf(semMessage, sizeof(semMessage), "Syntax analysis gagal: %.2000s", syntaxResult.message);
         freeSyntaxResult(&syntaxResult);
-        stackMachineExecutorDestroy(&executor);
-        return;
-    }
-
-    ast = buildAst(syntaxResult.tree);
-    freeSyntaxResult(&syntaxResult);
-
-    if (ast == NULL) {
-        snprintf(semMessage, sizeof(semMessage),
-                 "Gagal membangun AST dari parse tree.");
     } else {
-        symInit();
-        semOk = decorateAst(ast, astMessage, sizeof(astMessage));
-        if (!semOk) {
-            snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
+        ast = buildAst(syntaxResult.tree);
+        freeSyntaxResult(&syntaxResult);
+
+        if (ast == NULL) {
+            snprintf(semMessage, sizeof(semMessage), "Gagal membangun AST dari parse tree.");
+        } else {
+            symInit();
+            semOk = decorateAst(ast, astMessage, sizeof(astMessage));
+            if (!semOk) {
+                snprintf(semMessage, sizeof(semMessage), "%s", astMessage);
+            }
         }
     }
 
@@ -532,7 +527,6 @@ static void runMilestone4StackExecution(void) {
     writeMilestone4Report(stdout,
                           semOk,
                           semMessage,
-                          ast,
                           icOk,
                           icMessage,
                           &instructions,
@@ -547,7 +541,6 @@ static void runMilestone4StackExecution(void) {
         writeMilestone4Report(out,
                               semOk,
                               semMessage,
-                              ast,
                               icOk,
                               icMessage,
                               &instructions,
@@ -573,6 +566,9 @@ static bool promptAnalysisMode(int *mode) {
     printf("Masukkan pilihan: ");
 
     if (scanf("%d", mode)!=1) {
+        if (feof(stdin)) {
+            return false;
+        }
         fprintf(stderr, "Input pilihan harus berupa angka.\n\n");
         clearInputBuffer();
         return false;
@@ -586,6 +582,9 @@ int main(void) {
 
     while (true) {
         if (!promptAnalysisMode(&mode)) {
+            if (feof(stdin)) {
+                return EXIT_SUCCESS;
+            }
             continue;
         }
 
