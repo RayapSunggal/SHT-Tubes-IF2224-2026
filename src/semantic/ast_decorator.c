@@ -152,6 +152,8 @@ static void visitStatement(AstNode *node);
 static void visitDeclPart(AstNode *node);
 static void visitBlock(AstNode *node);
 static int typeRefForNode(AstNode *node);
+static BaseType lvalueType(AstNode *target);
+static void markAssigned(AstNode *target);
 
 static TypeInfo resolveTypeInfo(AstNode *typeNode) {
     if (typeNode == NULL) {
@@ -503,6 +505,19 @@ static BaseType visitFieldAccess(AstNode *node) {
 
 static BaseType visitCall(AstNode *node) {
     int idx = symLookup(node->sval);
+    if (idx != -1 && tab[idx].obj != OBJ_PROCEDURE && tab[idx].obj != OBJ_FUNCTION) {
+        idx = -1;
+    }
+    if (idx == -1 && node->sval != NULL) {
+        for (int i = symTabCount() - 1; i >= 0; i--) {
+            if (tab[i].identifier != NULL &&
+                strcasecmp(tab[i].identifier, node->sval) == 0 &&
+                (tab[i].obj == OBJ_PROCEDURE || tab[i].obj == OBJ_FUNCTION)) {
+                idx = i;
+                break;
+            }
+        }
+    }
     if (idx == -1) {
         semError("Procedure/function '%s' belum dideklarasikan.",
                  node->sval ? node->sval : "?");
@@ -520,6 +535,25 @@ static BaseType visitCall(AstNode *node) {
         semError("Procedure '%s' tidak dapat digunakan sebagai expression.",
                  node->sval ? node->sval : "?");
         return TYPE_NONE;
+    }
+
+    if (node->sval != NULL &&
+        (strcasecmp(node->sval, "read") == 0 || strcasecmp(node->sval, "readln") == 0)) {
+        for (size_t i = 0; i < node->childCount; i++) {
+            AstNode *pl = node->children[i];
+            if (pl->type == AST_PARAM_LIST) {
+                for (size_t j = 0; j < pl->childCount; j++) {
+                    if (lvalueType(pl->children[j]) == TYPE_NONE) {
+                        semError("Parameter read/readln ke-%zu harus berupa variabel.",
+                                 j + 1);
+                        return TYPE_NONE;
+                    }
+                    markAssigned(pl->children[j]);
+                }
+            }
+        }
+        node->typeIdx = TYPE_VOID;
+        return TYPE_VOID;
     }
 
     int actualCount = 0;
@@ -877,6 +911,7 @@ static void visitFor(AstNode *node) {
     }
 
     size_t exprSeen = 0;
+    tab[idx].initialized = true;
     for (size_t i = 0; i < node->childCount; i++) {
         AstNode *c = node->children[i];
         if (c->type == AST_COMPOUND) {
@@ -894,7 +929,6 @@ static void visitFor(AstNode *node) {
             exprSeen++;
         }
     }
-    tab[idx].initialized = true;
 }
 
 static void visitRepeat(AstNode *node) {
