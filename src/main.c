@@ -434,7 +434,6 @@ static bool promptMilestone4Paths(char *inputPath, size_t inputPathSize,
 static void writeMilestone4Report(FILE *stream,
                                   bool semOk,
                                   const char *semMessage,
-                                  const AstNode *decoratedAst,
                                   bool icOk,
                                   const char *icMessage,
                                   const InstructionList *instructions,
@@ -449,14 +448,7 @@ static void writeMilestone4Report(FILE *stream,
         fprintf(stream, "Semantic error: %s\n\n", semMessage != NULL ? semMessage : "-");
     }
 
-    fprintf(stream, "=== Decorated AST ===\n");
-    if (decoratedAst != NULL) {
-        printDecoratedAst(decoratedAst, stream);
-    } else {
-        fprintf(stream, "(AST tidak dapat dibentuk dari parse tree)\n");
-    }
-
-    fprintf(stream, "\n=== Intermediate Code ===\n");
+    fprintf(stream, "=== Intermediate Code ===\n");
     if (!semOk) {
         fprintf(stream, "Intermediate Code skipped: analisis source tidak valid.\n");
     } else if (icOk && instructions != NULL) {
@@ -535,7 +527,6 @@ static void runMilestone4StackExecution(void) {
     writeMilestone4Report(stdout,
                           semOk,
                           semMessage,
-                          ast,
                           icOk,
                           icMessage,
                           &instructions,
@@ -550,7 +541,6 @@ static void runMilestone4StackExecution(void) {
         writeMilestone4Report(out,
                               semOk,
                               semMessage,
-                              ast,
                               icOk,
                               icMessage,
                               &instructions,
@@ -576,6 +566,9 @@ static bool promptAnalysisMode(int *mode) {
     printf("Masukkan pilihan: ");
 
     if (scanf("%d", mode)!=1) {
+        if (feof(stdin)) {
+            return false;
+        }
         fprintf(stderr, "Input pilihan harus berupa angka.\n\n");
         clearInputBuffer();
         return false;
@@ -589,6 +582,9 @@ int main(void) {
 
     while (true) {
         if (!promptAnalysisMode(&mode)) {
+            if (feof(stdin)) {
+                return EXIT_SUCCESS;
+            }
             continue;
         }
 

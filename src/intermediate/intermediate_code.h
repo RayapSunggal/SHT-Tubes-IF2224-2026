@@ -22,6 +22,7 @@ typedef enum {
 } Opcode;
 
 typedef enum {
+    /* OPR 1..14 follow the Milestone 4 guidebook convention. */
     OPR_NEG = 1,
     OPR_ADD = 2,
     OPR_SUB = 3,
@@ -35,7 +36,18 @@ typedef enum {
     OPR_GTR = 11,
     OPR_LEQ = 12,
     OPR_WRT = 13,
-    OPR_WRTLN = 14
+    OPR_WRTLN = 14,
+
+    /*
+     * Internal extensions, intentionally placed after the guidebook range:
+     * RDIV forces Pascal real division, TO_REAL preserves decorated-AST
+     * integer-to-real assignment semantics, and the error operations surface
+     * array/subrange runtime validation with precise messages.
+     */
+    OPR_RDIV = 15,
+    OPR_TO_REAL = 16,
+    OPR_INDEX_ERROR = 17,
+    OPR_RANGE_ERROR = 18
 } OprCode;
 
 typedef struct {

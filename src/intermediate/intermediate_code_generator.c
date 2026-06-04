@@ -7,6 +7,14 @@
 
 #include "../semantic/symbol_table.h"
 
+/*
+ * Milestone 4 backend entrypoint.
+ *
+ * The parser first builds an AST, semantic analysis decorates that AST with
+ * typeIdx/tabIdx/lexLevel and populates TAB/BTAB/ATAB, and only then this
+ * module lowers it to stack-machine IC. Generation below intentionally reads
+ * those decorated attributes and symbol-table addresses instead of raw tokens.
+ */
 typedef struct {
     int tabIndex;
     size_t line;
@@ -34,6 +42,12 @@ typedef struct {
     int level;
     long long operand;
 } DirectAddress;
+
+enum {
+    IC_TEMP_CASE_SELECTOR = 0,
+    IC_TEMP_CHECK_VALUE = 1,
+    IC_COMPILER_TEMP_COUNT = 2
+};
 
 static void setError(GeneratorContext *ctx, const char *format, ...) {
     va_list args;
@@ -126,6 +140,10 @@ static int globalDataSize(void) {
     return size;
 }
 
+static int compilerTempAddress(int tempIndex) {
+    return IC_RESERVED_RUNTIME_CELLS + globalDataSize() + tempIndex;
+}
+
 int intermediateCodeRuntimeAddressForTabIndex(int tabIndex) {
     int address;
     int count = symTabCount();
@@ -146,7 +164,7 @@ int intermediateCodeRuntimeAddressForTabIndex(int tabIndex) {
 }
 
 int intermediateCodeGlobalMemorySize(void) {
-    return IC_RESERVED_RUNTIME_CELLS + globalDataSize();
+    return IC_RESERVED_RUNTIME_CELLS + globalDataSize() + IC_COMPILER_TEMP_COUNT;
 }
 
 static const AstNode *firstParamList(const AstNode *node) {
@@ -313,24 +331,36 @@ static bool emitIntegerLiteral(GeneratorContext *ctx, long long value) {
     return emitLiteral(ctx, runtimeValueInteger(value));
 }
 
+static bool directVariableReferenceForIndex(GeneratorContext *ctx,
+                                            int idx,
+                                            const char *name,
+                                            DirectAddress *ref);
+
 static bool directVariableReference(GeneratorContext *ctx, const AstNode *node, DirectAddress *ref) {
     int idx;
-    long long address;
-
-    if (node == NULL || ref == NULL) {
+    if (node == NULL) {
         setError(ctx, "Intermediate Code Error: target kosong.");
         return false;
     }
 
-    if (node->type != AST_VAR) {
-        setError(ctx, "Intermediate Code Error: target assignment tidak didukung.");
+    idx = nodeSymbolIndex(node);
+    return directVariableReferenceForIndex(ctx, idx, node->sval, ref);
+}
+
+static bool directVariableReferenceForIndex(GeneratorContext *ctx,
+                                            int idx,
+                                            const char *name,
+                                            DirectAddress *ref) {
+    long long address;
+
+    if (ref == NULL) {
+        setError(ctx, "Intermediate Code Error: target kosong.");
         return false;
     }
 
-    idx = nodeSymbolIndex(node);
     if (idx < 0 || idx >= symTabCount() || tab[idx].obj != OBJ_VARIABLE) {
         setError(ctx, "Intermediate Code Error: target '%s' bukan variabel.",
-                 node->sval != NULL ? node->sval : "?");
+                 name != NULL ? name : "?");
         return false;
     }
 
@@ -343,7 +373,7 @@ static bool directVariableReference(GeneratorContext *ctx, const AstNode *node, 
     address = symFrameOffsetForTabIndex(idx);
     if (address < 0) {
         setError(ctx, "Intermediate Code Error: offset frame '%s' tidak valid.",
-                 node->sval != NULL ? node->sval : "?");
+                 name != NULL ? name : "?");
         return false;
     }
 
@@ -411,18 +441,19 @@ static bool nodeTypeRef(GeneratorContext *ctx, const AstNode *node, BaseType *ty
 }
 
 static bool generateBoundsCheck(GeneratorContext *ctx, const AstNode *indexNode, int low, int high) {
+    int tempAddress = compilerTempAddress(IC_TEMP_CHECK_VALUE);
     size_t lowFail;
     size_t highFail;
     size_t endJump;
     size_t failLine;
 
     if (!generateExpression(ctx, indexNode) ||
-        !emitSimple(ctx, OPCODE_STO, 0, 1) ||
-        !emitSimple(ctx, OPCODE_LOD, 0, 1) ||
+        !emitSimple(ctx, OPCODE_STO, 0, tempAddress) ||
+        !emitSimple(ctx, OPCODE_LOD, 0, tempAddress) ||
         !emitIntegerLiteral(ctx, low) ||
         !emitSimple(ctx, OPCODE_OPR, 0, OPR_GEQ) ||
         !emitPatchable(ctx, OPCODE_JPC, &lowFail) ||
-        !emitSimple(ctx, OPCODE_LOD, 0, 1) ||
+        !emitSimple(ctx, OPCODE_LOD, 0, tempAddress) ||
         !emitIntegerLiteral(ctx, high) ||
         !emitSimple(ctx, OPCODE_OPR, 0, OPR_LEQ) ||
         !emitPatchable(ctx, OPCODE_JPC, &highFail) ||
@@ -433,11 +464,48 @@ static bool generateBoundsCheck(GeneratorContext *ctx, const AstNode *indexNode,
     failLine = ctx->instructions->count;
     if (!patchOperand(ctx, lowFail, (long long)failLine) ||
         !patchOperand(ctx, highFail, (long long)failLine) ||
-        !emitSimple(ctx, OPCODE_LOD, 0, -1)) {
+        !emitSimple(ctx, OPCODE_LOD, 0, tempAddress) ||
+        !emitIntegerLiteral(ctx, low) ||
+        !emitIntegerLiteral(ctx, high) ||
+        !emitSimple(ctx, OPCODE_OPR, 0, OPR_INDEX_ERROR)) {
         return false;
     }
 
     return patchOperand(ctx, endJump, (long long)ctx->instructions->count);
+}
+
+static bool generateRuntimeRangeCheck(GeneratorContext *ctx, int low, int high) {
+    int tempAddress = compilerTempAddress(IC_TEMP_CHECK_VALUE);
+    size_t lowFail;
+    size_t highFail;
+    size_t endJump;
+    size_t failLine;
+
+    if (!emitSimple(ctx, OPCODE_STO, 0, tempAddress) ||
+        !emitSimple(ctx, OPCODE_LOD, 0, tempAddress) ||
+        !emitIntegerLiteral(ctx, low) ||
+        !emitSimple(ctx, OPCODE_OPR, 0, OPR_GEQ) ||
+        !emitPatchable(ctx, OPCODE_JPC, &lowFail) ||
+        !emitSimple(ctx, OPCODE_LOD, 0, tempAddress) ||
+        !emitIntegerLiteral(ctx, high) ||
+        !emitSimple(ctx, OPCODE_OPR, 0, OPR_LEQ) ||
+        !emitPatchable(ctx, OPCODE_JPC, &highFail) ||
+        !emitPatchable(ctx, OPCODE_JMP, &endJump)) {
+        return false;
+    }
+
+    failLine = ctx->instructions->count;
+    if (!patchOperand(ctx, lowFail, (long long)failLine) ||
+        !patchOperand(ctx, highFail, (long long)failLine) ||
+        !emitSimple(ctx, OPCODE_LOD, 0, tempAddress) ||
+        !emitIntegerLiteral(ctx, low) ||
+        !emitIntegerLiteral(ctx, high) ||
+        !emitSimple(ctx, OPCODE_OPR, 0, OPR_RANGE_ERROR) ||
+        !patchOperand(ctx, endJump, (long long)ctx->instructions->count)) {
+        return false;
+    }
+
+    return emitSimple(ctx, OPCODE_LOD, 0, tempAddress);
 }
 
 static bool generateAddress(GeneratorContext *ctx, const AstNode *node) {
@@ -498,7 +566,7 @@ static bool generateAddress(GeneratorContext *ctx, const AstNode *node) {
             }
             arrayRef = currentRef;
             if (!generateBoundsCheck(ctx, node->children[i], atab[arrayRef].low, atab[arrayRef].high) ||
-                !emitSimple(ctx, OPCODE_LOD, 0, 1) ||
+                !emitSimple(ctx, OPCODE_LOD, 0, compilerTempAddress(IC_TEMP_CHECK_VALUE)) ||
                 !emitIntegerLiteral(ctx, atab[arrayRef].low) ||
                 !emitSimple(ctx, OPCODE_OPR, 0, OPR_SUB) ||
                 !emitIntegerLiteral(ctx, atab[arrayRef].elsz) ||
@@ -543,7 +611,7 @@ static bool emitIdentifierLoad(GeneratorContext *ctx, const AstNode *node) {
         return false;
     }
 
-    if (!directVariableReference(ctx, node, &ref)) {
+    if (!directVariableReferenceForIndex(ctx, idx, node->sval, &ref)) {
         return false;
     }
 
@@ -615,6 +683,68 @@ static bool generateUnaryExpression(GeneratorContext *ctx, const AstNode *node) 
     return emitSimple(ctx, OPCODE_OPR, 0, OPR_NEG);
 }
 
+static int rangeTabIndexForTarget(const AstNode *node) {
+    if (node == NULL) {
+        return -1;
+    }
+
+    if (node->type == AST_VAR) {
+        return nodeSymbolIndex(node);
+    }
+
+    if (node->type == AST_FIELD_ACCESS) {
+        if (node->tabIdx >= 0) {
+            return node->tabIdx;
+        }
+        if (node->childCount >= 2) {
+            return node->children[1]->tabIdx;
+        }
+    }
+
+    return -1;
+}
+
+static bool emitValueGuardsForType(GeneratorContext *ctx,
+                                   BaseType targetType,
+                                   BaseType sourceType,
+                                   int rangeTabIndex) {
+    if (rangeTabIndex >= 0 && rangeTabIndex < symTabCount() && tab[rangeTabIndex].hasRange) {
+        if (!generateRuntimeRangeCheck(ctx, tab[rangeTabIndex].rangeLow, tab[rangeTabIndex].rangeHigh)) {
+            return false;
+        }
+    }
+
+    if (targetType == TYPE_REAL && sourceType == TYPE_INTEGER) {
+        return emitSimple(ctx, OPCODE_OPR, 0, OPR_TO_REAL);
+    }
+
+    return true;
+}
+
+static bool emitValueGuardsForTarget(GeneratorContext *ctx,
+                                     const AstNode *target,
+                                     const AstNode *source) {
+    BaseType targetType;
+    BaseType sourceType;
+    int targetRef;
+
+    if (!nodeTypeRef(ctx, target, &targetType, &targetRef)) {
+        return false;
+    }
+
+    sourceType = source != NULL ? (BaseType)source->typeIdx : TYPE_NONE;
+    return emitValueGuardsForType(ctx, targetType, sourceType, rangeTabIndexForTarget(target));
+}
+
+static bool emitValueGuardsForTabIndex(GeneratorContext *ctx, int tabIndex, BaseType sourceType) {
+    if (tabIndex < 0 || tabIndex >= symTabCount()) {
+        setError(ctx, "Intermediate Code Error: parameter formal tidak valid.");
+        return false;
+    }
+
+    return emitValueGuardsForType(ctx, tab[tabIndex].type, sourceType, tabIndex);
+}
+
 static bool emitCallArguments(GeneratorContext *ctx, const AstNode *callNode, const AstNode *declNode) {
     const AstNode *actuals = firstParamList(callNode);
     const AstNode *formals = firstParamList(declNode);
@@ -649,6 +779,11 @@ static bool emitCallArguments(GeneratorContext *ctx, const AstNode *callNode, co
             if (!generateExpression(ctx, actuals->children[formalIndex])) {
                 return false;
             }
+            if (!emitValueGuardsForTabIndex(ctx,
+                                            idents->children[j]->tabIdx,
+                                            (BaseType)actuals->children[formalIndex]->typeIdx)) {
+                return false;
+            }
             formalIndex++;
         }
     }
@@ -673,7 +808,13 @@ static bool generateFunctionCall(GeneratorContext *ctx, const AstNode *node) {
     }
 
     declNode = findSubprogramNode(ctx, functionIndex);
-    if (declNode == NULL || !emitCallArguments(ctx, node, declNode)) {
+    if (declNode == NULL) {
+        setError(ctx, "Intermediate Code Error: deklarasi function '%s' tidak ditemukan.",
+                 node->sval != NULL ? node->sval : "?");
+        return false;
+    }
+
+    if (!emitCallArguments(ctx, node, declNode)) {
         return false;
     }
 
@@ -730,7 +871,8 @@ static bool generateAssignment(GeneratorContext *ctx, const AstNode *node) {
 
     target = node->children[0];
 
-    if (!generateExpression(ctx, node->children[1])) {
+    if (!generateExpression(ctx, node->children[1]) ||
+        !emitValueGuardsForTarget(ctx, target, node->children[1])) {
         return false;
     }
 
@@ -778,6 +920,12 @@ static bool generateProcedureCall(GeneratorContext *ctx, const AstNode *node) {
     const AstNode *declNode;
 
     if (node->sval != NULL &&
+        (strcasecmp(node->sval, "read") == 0 || strcasecmp(node->sval, "readln") == 0)) {
+        setError(ctx, "read/readln is not supported in Milestone 4 runtime");
+        return false;
+    }
+
+    if (node->sval != NULL &&
         (strcasecmp(node->sval, "write") == 0 || strcasecmp(node->sval, "writeln") == 0)) {
         return generateWriteCall(ctx, node);
     }
@@ -790,7 +938,13 @@ static bool generateProcedureCall(GeneratorContext *ctx, const AstNode *node) {
     }
 
     declNode = findSubprogramNode(ctx, procIndex);
-    if (declNode == NULL || !emitCallArguments(ctx, node, declNode)) {
+    if (declNode == NULL) {
+        setError(ctx, "Intermediate Code Error: deklarasi procedure '%s' tidak ditemukan.",
+                 node->sval != NULL ? node->sval : "?");
+        return false;
+    }
+
+    if (!emitCallArguments(ctx, node, declNode)) {
         return false;
     }
 
@@ -899,7 +1053,9 @@ static bool generateFor(GeneratorContext *ctx, const AstNode *node) {
         return false;
     }
 
-    if (!generateExpression(ctx, node->children[0]) || !emitSimple(ctx, OPCODE_STO, ref.level, ref.operand)) {
+    if (!generateExpression(ctx, node->children[0]) ||
+        !emitValueGuardsForTabIndex(ctx, idx, (BaseType)node->children[0]->typeIdx) ||
+        !emitSimple(ctx, OPCODE_STO, ref.level, ref.operand)) {
         return false;
     }
 
@@ -912,6 +1068,7 @@ static bool generateFor(GeneratorContext *ctx, const AstNode *node) {
         !emitSimple(ctx, OPCODE_LOD, ref.level, ref.operand) ||
         !emitLiteral(ctx, runtimeValueInteger(1)) ||
         !emitSimple(ctx, OPCODE_OPR, 0, stepOp) ||
+        !emitValueGuardsForTabIndex(ctx, idx, tab[idx].type) ||
         !emitSimple(ctx, OPCODE_STO, ref.level, ref.operand) ||
         !emitSimple(ctx, OPCODE_JMP, 0, (long long)loopStart)) {
         return false;
@@ -954,7 +1111,7 @@ static bool generateCase(GeneratorContext *ctx, const AstNode *node) {
     }
 
     if (!generateExpression(ctx, node->children[0]) ||
-        !emitSimple(ctx, OPCODE_STO, 0, 0)) {
+        !emitSimple(ctx, OPCODE_STO, 0, compilerTempAddress(IC_TEMP_CASE_SELECTOR))) {
         return false;
     }
 
@@ -979,7 +1136,7 @@ static bool generateCase(GeneratorContext *ctx, const AstNode *node) {
                 continue;
             }
 
-            if (!emitSimple(ctx, OPCODE_LOD, 0, 0) ||
+            if (!emitSimple(ctx, OPCODE_LOD, 0, compilerTempAddress(IC_TEMP_CASE_SELECTOR)) ||
                 !generateExpression(ctx, block->children[j]) ||
                 !emitSimple(ctx, OPCODE_OPR, 0, OPR_EQL) ||
                 !emitPatchable(ctx, OPCODE_JPC, &nextCase) ||
@@ -1084,6 +1241,7 @@ static bool generateSubprograms(GeneratorContext *ctx, const AstNode *node);
 static bool generateSubprogram(GeneratorContext *ctx, const AstNode *node) {
     int tabIndex = nodeSymbolIndex(node);
     const AstNode *body = NULL;
+    size_t bodyJump;
 
     for (size_t i = 0; i < node->childCount; i++) {
         if (node->children[i]->type == AST_BLOCK) {
@@ -1102,7 +1260,9 @@ static bool generateSubprogram(GeneratorContext *ctx, const AstNode *node) {
         return false;
     }
 
-    if (!generateSubprograms(ctx, body)) {
+    if (!emitPatchable(ctx, OPCODE_JMP, &bodyJump) ||
+        !generateSubprograms(ctx, body) ||
+        !patchOperand(ctx, bodyJump, (long long)ctx->instructions->count)) {
         return false;
     }
 

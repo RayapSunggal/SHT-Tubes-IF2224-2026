@@ -595,7 +595,7 @@ static bool executeArithmetic(StackMachineExecutor *executor, const Instruction 
         return false;
     }
 
-    if (left.type == RUNTIME_VALUE_REAL || right.type == RUNTIME_VALUE_REAL) {
+    if (code == OPR_RDIV || left.type == RUNTIME_VALUE_REAL || right.type == RUNTIME_VALUE_REAL) {
         double l = runtimeValueAsDouble(left);
         double r = runtimeValueAsDouble(right);
         switch (code) {
@@ -603,8 +603,9 @@ static bool executeArithmetic(StackMachineExecutor *executor, const Instruction 
             case OPR_SUB: ok = pushRealResult(executor, instruction, l - r); break;
             case OPR_MUL: ok = pushRealResult(executor, instruction, l * r); break;
             case OPR_DIV:
+            case OPR_RDIV:
                 if (runtimeValueIsZero(right)) {
-                    setRuntimeError(executor, instruction, "Division by Zero in DIV");
+                    setRuntimeError(executor, instruction, "Division by Zero in %s", oprCodeName(code));
                 } else {
                     ok = pushRealResult(executor, instruction, l / r);
                 }
@@ -693,6 +694,70 @@ static bool executeWrite(StackMachineExecutor *executor, const Instruction *inst
     return ok;
 }
 
+static bool executeToReal(StackMachineExecutor *executor, const Instruction *instruction) {
+    RuntimeValue value = runtimeValueNone();
+    bool ok;
+
+    if (!stackPop(executor, instruction, &value)) {
+        return false;
+    }
+    if (!runtimeValueIsNumeric(value)) {
+        runtimeValueFree(&value);
+        setRuntimeError(executor, instruction, "TO_REAL requires numeric operand");
+        return false;
+    }
+
+    ok = pushRealResult(executor, instruction, runtimeValueAsDouble(value));
+    runtimeValueFree(&value);
+    return ok;
+}
+
+static bool executeRangeError(StackMachineExecutor *executor,
+                              const Instruction *instruction,
+                              const char *name,
+                              const char *valueName) {
+    RuntimeValue value = runtimeValueNone();
+    RuntimeValue low = runtimeValueNone();
+    RuntimeValue high = runtimeValueNone();
+    long long valueInt;
+    long long lowInt;
+    long long highInt;
+
+    if (!stackPop(executor, instruction, &high)) {
+        return false;
+    }
+    if (!stackPop(executor, instruction, &low)) {
+        runtimeValueFree(&high);
+        return false;
+    }
+    if (!stackPop(executor, instruction, &value)) {
+        runtimeValueFree(&low);
+        runtimeValueFree(&high);
+        return false;
+    }
+
+    if (!runtimeValueIsNumeric(value) ||
+        !runtimeValueIsNumeric(low) ||
+        !runtimeValueIsNumeric(high)) {
+        runtimeValueFree(&value);
+        runtimeValueFree(&low);
+        runtimeValueFree(&high);
+        setRuntimeError(executor, instruction, "%s operands must be numeric", name);
+        return false;
+    }
+
+    valueInt = runtimeValueAsInteger(value);
+    lowInt = runtimeValueAsInteger(low);
+    highInt = runtimeValueAsInteger(high);
+    runtimeValueFree(&value);
+    runtimeValueFree(&low);
+    runtimeValueFree(&high);
+
+    setRuntimeError(executor, instruction, "%s: %s %lld outside range %lld..%lld",
+                    name, valueName, valueInt, lowInt, highInt);
+    return false;
+}
+
 static bool executeOpr(StackMachineExecutor *executor, const Instruction *instruction) {
     OprCode code = (OprCode)instruction->operand;
 
@@ -703,8 +768,16 @@ static bool executeOpr(StackMachineExecutor *executor, const Instruction *instru
         case OPR_SUB:
         case OPR_MUL:
         case OPR_DIV:
+        case OPR_RDIV:
         case OPR_MOD:
             return executeArithmetic(executor, instruction, code);
+        /* Internal OPR extensions above the guidebook range 1..14. */
+        case OPR_TO_REAL:
+            return executeToReal(executor, instruction);
+        case OPR_INDEX_ERROR:
+            return executeRangeError(executor, instruction, "IndexOutOfBoundsException", "index");
+        case OPR_RANGE_ERROR:
+            return executeRangeError(executor, instruction, "RangeCheckException", "value");
         case OPR_EQL:
         case OPR_NEQ:
         case OPR_LSS:

@@ -152,6 +152,8 @@ static void visitStatement(AstNode *node);
 static void visitDeclPart(AstNode *node);
 static void visitBlock(AstNode *node);
 static int typeRefForNode(AstNode *node);
+static BaseType lvalueType(AstNode *target);
+static void markAssigned(AstNode *target);
 
 static TypeInfo resolveTypeInfo(AstNode *typeNode) {
     if (typeNode == NULL) {
@@ -533,6 +535,25 @@ static BaseType visitCall(AstNode *node) {
         semError("Procedure '%s' tidak dapat digunakan sebagai expression.",
                  node->sval ? node->sval : "?");
         return TYPE_NONE;
+    }
+
+    if (node->sval != NULL &&
+        (strcasecmp(node->sval, "read") == 0 || strcasecmp(node->sval, "readln") == 0)) {
+        for (size_t i = 0; i < node->childCount; i++) {
+            AstNode *pl = node->children[i];
+            if (pl->type == AST_PARAM_LIST) {
+                for (size_t j = 0; j < pl->childCount; j++) {
+                    if (lvalueType(pl->children[j]) == TYPE_NONE) {
+                        semError("Parameter read/readln ke-%zu harus berupa variabel.",
+                                 j + 1);
+                        return TYPE_NONE;
+                    }
+                    markAssigned(pl->children[j]);
+                }
+            }
+        }
+        node->typeIdx = TYPE_VOID;
+        return TYPE_VOID;
     }
 
     int actualCount = 0;

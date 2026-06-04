@@ -120,6 +120,10 @@ const char *oprCodeName(int code) {
         case OPR_LEQ:   return "LEQ";
         case OPR_WRT:   return "WRT";
         case OPR_WRTLN: return "WRTLN";
+        case OPR_RDIV:  return "RDIV";
+        case OPR_TO_REAL: return "TO_REAL";
+        case OPR_INDEX_ERROR: return "INDEX_ERROR";
+        case OPR_RANGE_ERROR: return "RANGE_ERROR";
         default:        return "UNKNOWN";
     }
 }
@@ -133,7 +137,7 @@ bool oprCodeFromOperator(const char *operatorName, OprCode *code) {
     if (strcmp(operatorName, "minus") == 0) { *code = OPR_SUB; return true; }
     if (strcmp(operatorName, "times") == 0) { *code = OPR_MUL; return true; }
     if (strcmp(operatorName, "idiv") == 0)  { *code = OPR_DIV; return true; }
-    if (strcmp(operatorName, "rdiv") == 0)  { *code = OPR_DIV; return true; }
+    if (strcmp(operatorName, "rdiv") == 0)  { *code = OPR_RDIV; return true; }
     if (strcmp(operatorName, "imod") == 0)  { *code = OPR_MOD; return true; }
     if (strcmp(operatorName, "eql") == 0)   { *code = OPR_EQL; return true; }
     if (strcmp(operatorName, "neq") == 0)   { *code = OPR_NEQ; return true; }
