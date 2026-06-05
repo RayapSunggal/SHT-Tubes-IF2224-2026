@@ -68,6 +68,21 @@ static bool enumRefCompatible(int targetRef, int sourceRef) {
     return targetIsEnum && sourceIsEnum && targetRef == sourceRef;
 }
 
+static bool isEnumRef(int ref) {
+    return ref >= 0 && symEnumCount(ref) > 0;
+}
+
+static bool typesCompatibleRef(BaseType leftType, int leftRef,
+                               BaseType rightType, int rightRef) {
+    if (leftType == TYPE_INTEGER || rightType == TYPE_INTEGER) {
+        if (!enumRefCompatible(leftRef, rightRef)) {
+            return false;
+        }
+    }
+
+    return typesCompatible(leftType, rightType);
+}
+
 static bool arrayTypesCompatible(int leftRef, int rightRef) {
     if (leftRef < 0 || rightRef < 0 ||
         leftRef >= symAtabCount() || rightRef >= symAtabCount()) {
@@ -220,6 +235,39 @@ static BaseType visitFieldAccessMode(AstNode *node, bool requireInitialized);
 static int typeRefForNode(AstNode *node);
 static BaseType lvalueType(AstNode *target);
 static void markAssigned(AstNode *target);
+
+static int functionReturnTabIndex(int functionIdx) {
+    int blockIdx;
+
+    if (functionIdx < 0 || functionIdx >= symTabCount() ||
+        tab[functionIdx].obj != OBJ_FUNCTION) {
+        return -1;
+    }
+
+    blockIdx = tab[functionIdx].ref;
+    if (blockIdx < 0 || blockIdx >= symBtabCount()) {
+        return -1;
+    }
+
+    for (int i = btab[blockIdx].last; i != -1; i = tab[i].link) {
+        if (tab[i].obj == OBJ_VARIABLE &&
+            tab[i].identifier != NULL &&
+            tab[functionIdx].identifier != NULL &&
+            strcasecmp(tab[i].identifier, tab[functionIdx].identifier) == 0) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static int functionReturnRef(int functionIdx) {
+    int retIdx = functionReturnTabIndex(functionIdx);
+    if (retIdx >= 0) {
+        return tab[retIdx].ref;
+    }
+    return -1;
+}
 
 static TypeInfo resolveTypeInfo(AstNode *typeNode) {
     if (typeNode == NULL) {
@@ -746,6 +794,8 @@ static BaseType visitBinOp(AstNode *node) {
     if (lt == TYPE_NONE || rt == TYPE_NONE) {
         return TYPE_NONE;
     }
+    int leftRef = typeRefForNode(node->children[0]);
+    int rightRef = typeRefForNode(node->children[1]);
 
     const char *op = node->sval;
 
@@ -759,7 +809,7 @@ static BaseType visitBinOp(AstNode *node) {
     }
 
     if (isRelationalOp(op)) {
-        if (!typesCompatible(lt, rt)) {
+        if (!typesCompatibleRef(lt, leftRef, rt, rightRef)) {
             semError("Operand operator relasional '%s' bertipe tidak kompatibel.", op);
             return TYPE_NONE;
         }
@@ -768,6 +818,10 @@ static BaseType visitBinOp(AstNode *node) {
     }
 
     if (isArithmeticOp(op)) {
+        if (isEnumRef(leftRef) || isEnumRef(rightRef)) {
+            semError("Operator aritmatika '%s' tidak dapat digunakan pada enum.", op);
+            return TYPE_NONE;
+        }
         if (!((lt == TYPE_INTEGER || lt == TYPE_REAL) &&
               (rt == TYPE_INTEGER || rt == TYPE_REAL))) {
             semError("Operator aritmatika '%s' membutuhkan operand numerik.", op);
@@ -810,6 +864,12 @@ static BaseType visitUnOp(AstNode *node) {
         }
         node->typeIdx = TYPE_BOOLEAN;
         return TYPE_BOOLEAN;
+    }
+
+    if (isEnumRef(typeRefForNode(node->children[0]))) {
+        semError("Operator unary '%s' tidak dapat digunakan pada enum.",
+                 node->sval ? node->sval : "?");
+        return TYPE_NONE;
     }
 
     if (t != TYPE_INTEGER && t != TYPE_REAL) {
@@ -895,7 +955,7 @@ static int typeRefForNode(AstNode *node) {
         return node->tabIdx >= 0 ? tab[node->tabIdx].ref : -1;
     }
     if (node->type == AST_FUNC_CALL) {
-        return node->tabIdx >= 0 ? tab[node->tabIdx].ref : -1;
+        return functionReturnRef(node->tabIdx);
     }
     return -1;
 }
@@ -932,10 +992,11 @@ static void visitAssign(AstNode *node) {
         return;
     }
 
-    if (lt == TYPE_ARRAY || lt == TYPE_RECORD || rt == TYPE_ARRAY || rt == TYPE_RECORD) {
-        semError("Structured assignment tidak didukung: assign array/record secara utuh tidak diperbolehkan.");
-        return;
-    } else if (!assignmentCompatibleRef(lt, typeRefForNode(target), rt, typeRefForNode(expr))) {
+    if (!assignmentCompatibleRef(lt, typeRefForNode(target), rt, typeRefForNode(expr))) {
+        if (lt == TYPE_ARRAY || lt == TYPE_RECORD || rt == TYPE_ARRAY || rt == TYPE_RECORD) {
+            semError("Type mismatch: struktur array/record tidak kompatibel untuk assignment.");
+            return;
+        }
         semError("Type mismatch: tidak dapat assign %s ke %s.",
                  baseTypeToString(rt), baseTypeToString(lt));
         return;
@@ -1021,13 +1082,12 @@ static void visitFor(AstNode *node) {
             visitStatement(c);
         } else if (exprSeen < 2) {
             BaseType bt = visitExpression(c);
-            if (bt != TYPE_NONE && bt != tab[idx].type &&
-                !(bt == TYPE_INTEGER && tab[idx].type == TYPE_INTEGER)) {
-                if (bt != tab[idx].type) {
-                    semError("Batas for-loop tidak kompatibel dengan counter '%s'.",
-                             node->sval ? node->sval : "?");
-                    return;
-                }
+            if (bt != TYPE_NONE &&
+                !assignmentCompatibleRef(tab[idx].type, tab[idx].ref,
+                                         bt, typeRefForNode(c))) {
+                semError("Batas for-loop tidak kompatibel dengan counter '%s'.",
+                         node->sval ? node->sval : "?");
+                return;
             }
             exprSeen++;
         }
@@ -1057,6 +1117,7 @@ static void visitCase(AstNode *node) {
     if (sel == TYPE_NONE) {
         return;
     }
+    int selectorRef = typeRefForNode(node->children[0]);
     for (size_t i = 1; i < node->childCount; i++) {
         AstNode *cb = node->children[i];
         if (cb->type != AST_CASE_BLOCK) {
@@ -1066,11 +1127,20 @@ static void visitCase(AstNode *node) {
             AstNode *c = cb->children[j];
             if (c->type == AST_INT_LIT || c->type == AST_CHAR_LIT ||
                 c->type == AST_BOOL_LIT || c->type == AST_VAR) {
+                if (c->type == AST_VAR) {
+                    int labelIdx = symLookup(c->sval);
+                    if (labelIdx < 0 || tab[labelIdx].obj != OBJ_CONSTANT) {
+                        semError("Label case '%s' harus berupa konstanta, bukan variabel runtime.",
+                                 c->sval ? c->sval : "?");
+                        return;
+                    }
+                }
                 BaseType labelType = visitExpression(c);
                 if (labelType == TYPE_NONE) {
                     return;
                 }
-                if (!typesCompatible(sel, labelType)) {
+                if (!typesCompatibleRef(sel, selectorRef,
+                                        labelType, typeRefForNode(c))) {
                     semError("Tipe label case tidak kompatibel dengan ekspresi case.");
                     return;
                 }
@@ -1128,6 +1198,7 @@ static void visitConstDecl(AstNode *node) {
     }
     AstNode *valNode = node->children[0];
     BaseType bt = TYPE_NONE;
+    int ref = -1;
     switch (valNode->type) {
         case AST_INT_LIT:    bt = TYPE_INTEGER; break;
         case AST_REAL_LIT:   bt = TYPE_REAL;    break;
@@ -1138,6 +1209,7 @@ static void visitConstDecl(AstNode *node) {
             int idx = symLookup(valNode->sval);
             if (idx != -1 && tab[idx].obj == OBJ_CONSTANT) {
                 bt = tab[idx].type;
+                ref = tab[idx].ref;
             }
             break;
         }
@@ -1154,7 +1226,7 @@ static void visitConstDecl(AstNode *node) {
         value = 0;
     }
     (void)valueType;
-    int r = symEnter(node->sval, OBJ_CONSTANT, bt, -1, 1, (int)value);
+    int r = symEnter(node->sval, OBJ_CONSTANT, bt, ref, 1, (int)value);
     if (r == -1) {
         semError("Redeklarasi konstanta '%s'.", node->sval ? node->sval : "?");
         return;

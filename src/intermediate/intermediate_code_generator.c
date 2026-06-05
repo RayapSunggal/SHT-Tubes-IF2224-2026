@@ -46,7 +46,8 @@ typedef struct {
 enum {
     IC_TEMP_CASE_SELECTOR = 0,
     IC_TEMP_CHECK_VALUE = 1,
-    IC_COMPILER_TEMP_COUNT = 2
+    IC_TEMP_FOR_NEXT = 2,
+    IC_COMPILER_TEMP_COUNT = 3
 };
 
 static void setError(GeneratorContext *ctx, const char *format, ...) {
@@ -940,6 +941,38 @@ static bool emitStructuredArgument(GeneratorContext *ctx,
     return true;
 }
 
+static bool emitStructuredAssignment(GeneratorContext *ctx,
+                                     const AstNode *target,
+                                     const AstNode *source,
+                                     BaseType targetType,
+                                     int targetRef) {
+    int size = sizeOfType(targetType, targetRef);
+
+    if (size <= 0) {
+        setError(ctx, "Intermediate Code Error: ukuran structured assignment tidak valid.");
+        return false;
+    }
+
+    for (int offset = 0; offset < size; offset++) {
+        if (!emitAddressedSlotLoad(ctx, source, offset) ||
+            !generateAddress(ctx, target)) {
+            return false;
+        }
+
+        if (offset > 0 &&
+            (!emitIntegerLiteral(ctx, offset) ||
+             !emitSimple(ctx, OPCODE_OPR, 0, OPR_ADD))) {
+            return false;
+        }
+
+        if (!emitSimple(ctx, OPCODE_STO, 1, 0)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool emitCallArguments(GeneratorContext *ctx, const AstNode *callNode, const AstNode *declNode) {
     const AstNode *actuals = firstParamList(callNode);
     const AstNode *formals = firstParamList(declNode);
@@ -1094,10 +1127,12 @@ static bool generateAssignment(GeneratorContext *ctx, const AstNode *node) {
 
     if (targetType == TYPE_ARRAY || targetType == TYPE_RECORD ||
         sourceType == TYPE_ARRAY || sourceType == TYPE_RECORD) {
-        (void)targetRef;
-        (void)sourceRef;
-        setError(ctx, "Intermediate Code Error: structured assignment tidak didukung.");
-        return false;
+        if (targetType != sourceType ||
+            sizeOfType(targetType, targetRef) != sizeOfType(sourceType, sourceRef)) {
+            setError(ctx, "Intermediate Code Error: structured assignment tidak kompatibel.");
+            return false;
+        }
+        return emitStructuredAssignment(ctx, target, source, targetType, targetRef);
     }
 
     if (!generateExpression(ctx, source) ||
@@ -1266,6 +1301,8 @@ static bool generateFor(GeneratorContext *ctx, const AstNode *node) {
     DirectAddress ref;
     size_t loopStart;
     size_t exitJump;
+    size_t nextExitJump;
+    int nextAddress = compilerTempAddress(IC_TEMP_FOR_NEXT);
     OprCode compareOp = node->ival < 0 ? OPR_GEQ : OPR_LEQ;
     OprCode stepOp = node->ival < 0 ? OPR_SUB : OPR_ADD;
 
@@ -1300,6 +1337,12 @@ static bool generateFor(GeneratorContext *ctx, const AstNode *node) {
         !emitSimple(ctx, OPCODE_LOD, ref.level, ref.operand) ||
         !emitLiteral(ctx, runtimeValueInteger(1)) ||
         !emitSimple(ctx, OPCODE_OPR, 0, stepOp) ||
+        !emitSimple(ctx, OPCODE_STO, 0, nextAddress) ||
+        !emitSimple(ctx, OPCODE_LOD, 0, nextAddress) ||
+        !generateExpression(ctx, node->children[1]) ||
+        !emitSimple(ctx, OPCODE_OPR, 0, compareOp) ||
+        !emitPatchable(ctx, OPCODE_JPC, &nextExitJump) ||
+        !emitSimple(ctx, OPCODE_LOD, 0, nextAddress) ||
         (tab[idx].type == TYPE_CHAR && !emitSimple(ctx, OPCODE_OPR, 0, OPR_TO_CHAR)) ||
         !emitValueGuardsForTabIndex(ctx, idx, tab[idx].type) ||
         !emitSimple(ctx, OPCODE_STO, ref.level, ref.operand) ||
@@ -1307,7 +1350,8 @@ static bool generateFor(GeneratorContext *ctx, const AstNode *node) {
         return false;
     }
 
-    return patchOperand(ctx, exitJump, (long long)ctx->instructions->count);
+    return patchOperand(ctx, exitJump, (long long)ctx->instructions->count) &&
+           patchOperand(ctx, nextExitJump, (long long)ctx->instructions->count);
 }
 
 static bool isCaseLabelNode(const AstNode *node) {
