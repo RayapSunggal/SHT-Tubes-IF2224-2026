@@ -832,6 +832,46 @@ static bool emitAddressedSlotLoad(GeneratorContext *ctx, const AstNode *node, in
     return emitSimple(ctx, OPCODE_LOD, 1, 0);
 }
 
+static bool emitAddressedSlotStore(GeneratorContext *ctx, const AstNode *node, int offset) {
+    if (offset < 0) {
+        setError(ctx, "Intermediate Code Error: offset structured value tidak valid.");
+        return false;
+    }
+
+    if (!generateAddress(ctx, node)) {
+        return false;
+    }
+
+    if (offset > 0 &&
+        (!emitIntegerLiteral(ctx, offset) ||
+         !emitSimple(ctx, OPCODE_OPR, 0, OPR_ADD))) {
+        return false;
+    }
+
+    return emitSimple(ctx, OPCODE_STO, 1, 0);
+}
+
+static bool emitStructuredAssignment(GeneratorContext *ctx,
+                                     const AstNode *target,
+                                     const AstNode *source,
+                                     BaseType type,
+                                     int ref) {
+    int size = sizeOfType(type, ref);
+
+    if (size <= 0) {
+        size = 1;
+    }
+
+    for (int offset = 0; offset < size; offset++) {
+        if (!emitAddressedSlotLoad(ctx, source, offset) ||
+            !emitAddressedSlotStore(ctx, target, offset)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool emitStructuredArgument(GeneratorContext *ctx,
                                    const AstNode *actual,
                                    int formalTabIndex) {
@@ -989,6 +1029,11 @@ static bool generateExpression(GeneratorContext *ctx, const AstNode *node) {
 static bool generateAssignment(GeneratorContext *ctx, const AstNode *node) {
     DirectAddress ref;
     const AstNode *target;
+    const AstNode *source;
+    BaseType targetType;
+    BaseType sourceType;
+    int targetRef;
+    int sourceRef;
 
     if (node->childCount < 2) {
         setError(ctx, "Intermediate Code Error: assignment tidak lengkap.");
@@ -996,9 +1041,24 @@ static bool generateAssignment(GeneratorContext *ctx, const AstNode *node) {
     }
 
     target = node->children[0];
+    source = node->children[1];
 
-    if (!generateExpression(ctx, node->children[1]) ||
-        !emitValueGuardsForTarget(ctx, target, node->children[1])) {
+    if (!nodeTypeRef(ctx, target, &targetType, &targetRef) ||
+        !nodeTypeRef(ctx, source, &sourceType, &sourceRef)) {
+        return false;
+    }
+
+    if (targetType == TYPE_ARRAY || targetType == TYPE_RECORD ||
+        sourceType == TYPE_ARRAY || sourceType == TYPE_RECORD) {
+        if (targetType != sourceType || targetRef != sourceRef) {
+            setError(ctx, "Intermediate Code Error: structured assignment tidak kompatibel.");
+            return false;
+        }
+        return emitStructuredAssignment(ctx, target, source, targetType, targetRef);
+    }
+
+    if (!generateExpression(ctx, source) ||
+        !emitValueGuardsForTarget(ctx, target, source)) {
         return false;
     }
 

@@ -828,9 +828,13 @@ static void visitAssign(AstNode *node) {
     }
 
     if (lt == TYPE_ARRAY || lt == TYPE_RECORD || rt == TYPE_ARRAY || rt == TYPE_RECORD) {
-        semError("Assignment structured type tidak didukung: tidak dapat assign %s secara utuh. Gunakan assignment per elemen array atau per field record.",
-                 lt == TYPE_ARRAY || rt == TYPE_ARRAY ? "array" : "record");
-        return;
+        int lref = typeRefForNode(target);
+        int rref = typeRefForNode(expr);
+        if (lt != rt || lref != rref) {
+            semError("Type mismatch: structured assignment tidak kompatibel (%s ke %s).",
+                     baseTypeToString(rt), baseTypeToString(lt));
+            return;
+        }
     } else if (!assignmentCompatible(lt, rt)) {
         semError("Type mismatch: tidak dapat assign %s ke %s.",
                  baseTypeToString(rt), baseTypeToString(lt));
