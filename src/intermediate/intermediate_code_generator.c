@@ -778,12 +778,79 @@ static int rangeTabIndexForTarget(const AstNode *node) {
     return -1;
 }
 
+static bool arrayContainerRefForAccess(GeneratorContext *ctx, const AstNode *node, int *arrayRefOut) {
+    BaseType currentType;
+    int currentRef;
+    int arrayRef = -1;
+
+    if (node == NULL || node->type != AST_ARRAY_ACCESS ||
+        node->childCount < 2 || arrayRefOut == NULL) {
+        return false;
+    }
+
+    if (!nodeTypeRef(ctx, node->children[0], &currentType, &currentRef)) {
+        return false;
+    }
+
+    for (size_t i = 1; i < node->childCount; i++) {
+        if (currentType != TYPE_ARRAY || currentRef < 0 || currentRef >= symAtabCount()) {
+            return false;
+        }
+        arrayRef = currentRef;
+        currentType = atab[arrayRef].etyp;
+        currentRef = atab[arrayRef].eref;
+    }
+
+    *arrayRefOut = arrayRef;
+    return arrayRef >= 0;
+}
+
+static bool rangeForTarget(GeneratorContext *ctx,
+                           const AstNode *target,
+                           bool *hasRange,
+                           int *low,
+                           int *high) {
+    int tabIndex;
+    int arrayRef;
+
+    if (hasRange == NULL || low == NULL || high == NULL) {
+        return false;
+    }
+
+    *hasRange = false;
+    *low = 0;
+    *high = 0;
+
+    if (target != NULL && target->type == AST_ARRAY_ACCESS) {
+        if (!arrayContainerRefForAccess(ctx, target, &arrayRef)) {
+            return true;
+        }
+        if (arrayRef >= 0 && arrayRef < symAtabCount() && atab[arrayRef].elemHasRange) {
+            *hasRange = true;
+            *low = atab[arrayRef].elemRangeLow;
+            *high = atab[arrayRef].elemRangeHigh;
+        }
+        return true;
+    }
+
+    tabIndex = rangeTabIndexForTarget(target);
+    if (tabIndex >= 0 && tabIndex < symTabCount() && tab[tabIndex].hasRange) {
+        *hasRange = true;
+        *low = tab[tabIndex].rangeLow;
+        *high = tab[tabIndex].rangeHigh;
+    }
+
+    return true;
+}
+
 static bool emitValueGuardsForType(GeneratorContext *ctx,
                                    BaseType targetType,
                                    BaseType sourceType,
-                                   int rangeTabIndex) {
-    if (rangeTabIndex >= 0 && rangeTabIndex < symTabCount() && tab[rangeTabIndex].hasRange) {
-        if (!generateRuntimeRangeCheck(ctx, tab[rangeTabIndex].rangeLow, tab[rangeTabIndex].rangeHigh)) {
+                                   bool hasRange,
+                                   int rangeLow,
+                                   int rangeHigh) {
+    if (hasRange) {
+        if (!generateRuntimeRangeCheck(ctx, rangeLow, rangeHigh)) {
             return false;
         }
     }
@@ -801,13 +868,19 @@ static bool emitValueGuardsForTarget(GeneratorContext *ctx,
     BaseType targetType;
     BaseType sourceType;
     int targetRef;
+    bool hasRange;
+    int rangeLow;
+    int rangeHigh;
 
     if (!nodeTypeRef(ctx, target, &targetType, &targetRef)) {
         return false;
     }
+    if (!rangeForTarget(ctx, target, &hasRange, &rangeLow, &rangeHigh)) {
+        return false;
+    }
 
     sourceType = source != NULL ? (BaseType)source->typeIdx : TYPE_NONE;
-    return emitValueGuardsForType(ctx, targetType, sourceType, rangeTabIndexForTarget(target));
+    return emitValueGuardsForType(ctx, targetType, sourceType, hasRange, rangeLow, rangeHigh);
 }
 
 static bool emitValueGuardsForTabIndex(GeneratorContext *ctx, int tabIndex, BaseType sourceType) {
@@ -816,7 +889,12 @@ static bool emitValueGuardsForTabIndex(GeneratorContext *ctx, int tabIndex, Base
         return false;
     }
 
-    return emitValueGuardsForType(ctx, tab[tabIndex].type, sourceType, tabIndex);
+    return emitValueGuardsForType(ctx,
+                                  tab[tabIndex].type,
+                                  sourceType,
+                                  tab[tabIndex].hasRange,
+                                  tab[tabIndex].rangeLow,
+                                  tab[tabIndex].rangeHigh);
 }
 
 static bool emitAddressedSlotLoad(GeneratorContext *ctx, const AstNode *node, int offset) {

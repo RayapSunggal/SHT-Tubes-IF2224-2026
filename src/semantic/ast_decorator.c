@@ -54,14 +54,78 @@ static bool typesCompatible(BaseType a, BaseType b) {
     return false;
 }
 
-static bool assignmentCompatible(BaseType t1, BaseType t2) {
-    if (t1 == TYPE_NONE || t2 == TYPE_NONE) {
-        return false;
-    }
-    if (t1 == t2) {
+static bool enumRefCompatible(int targetRef, int sourceRef) {
+    bool targetIsEnum = targetRef >= 0 && symEnumCount(targetRef) > 0;
+    bool sourceIsEnum = sourceRef >= 0 && symEnumCount(sourceRef) > 0;
+
+    if (!targetIsEnum && !sourceIsEnum) {
         return true;
     }
-    if (t1 == TYPE_REAL && t2 == TYPE_INTEGER) {
+
+    if (targetRef < 0 && sourceRef < 0) {
+        return true;
+    }
+    return targetIsEnum && sourceIsEnum && targetRef == sourceRef;
+}
+
+static bool arrayTypesCompatible(int leftRef, int rightRef) {
+    if (leftRef < 0 || rightRef < 0 ||
+        leftRef >= symAtabCount() || rightRef >= symAtabCount()) {
+        return false;
+    }
+
+    if (atab[leftRef].xtyp != atab[rightRef].xtyp ||
+        atab[leftRef].xref != atab[rightRef].xref ||
+        atab[leftRef].low != atab[rightRef].low ||
+        atab[leftRef].high != atab[rightRef].high ||
+        atab[leftRef].etyp != atab[rightRef].etyp ||
+        atab[leftRef].elemHasRange != atab[rightRef].elemHasRange) {
+        return false;
+    }
+
+    if (atab[leftRef].elemHasRange &&
+        (atab[leftRef].elemRangeBase != atab[rightRef].elemRangeBase ||
+         atab[leftRef].elemRangeLow != atab[rightRef].elemRangeLow ||
+         atab[leftRef].elemRangeHigh != atab[rightRef].elemRangeHigh)) {
+        return false;
+    }
+
+    if (atab[leftRef].etyp == TYPE_ARRAY) {
+        return arrayTypesCompatible(atab[leftRef].eref, atab[rightRef].eref);
+    }
+
+    if (atab[leftRef].etyp == TYPE_RECORD) {
+        return atab[leftRef].eref == atab[rightRef].eref;
+    }
+
+    return enumRefCompatible(atab[leftRef].eref, atab[rightRef].eref);
+}
+
+static bool assignmentCompatibleRef(BaseType targetType, int targetRef,
+                                    BaseType sourceType, int sourceRef) {
+    if (targetType == TYPE_ARRAY || sourceType == TYPE_ARRAY) {
+        return targetType == TYPE_ARRAY && sourceType == TYPE_ARRAY &&
+               arrayTypesCompatible(targetRef, sourceRef);
+    }
+
+    if (targetType == TYPE_RECORD || sourceType == TYPE_RECORD) {
+        return targetType == TYPE_RECORD && sourceType == TYPE_RECORD &&
+               targetRef == sourceRef;
+    }
+
+    if (targetType == TYPE_INTEGER || sourceType == TYPE_INTEGER) {
+        if (!enumRefCompatible(targetRef, sourceRef)) {
+            return false;
+        }
+    }
+
+    if (targetType == TYPE_NONE || sourceType == TYPE_NONE) {
+        return false;
+    }
+    if (targetType == sourceType) {
+        return true;
+    }
+    if (targetType == TYPE_REAL && sourceType == TYPE_INTEGER && sourceRef < 0) {
         return true;
     }
     return false;
@@ -165,7 +229,14 @@ static TypeInfo resolveTypeInfo(AstNode *typeNode) {
     if (typeNode->type == AST_TYPE_IDENT) {
         BaseType bt = baseTypeFromName(typeNode->sval);
         if (bt != TYPE_NONE) {
-            return makeTypeInfo(bt, -1);
+            TypeInfo info = makeTypeInfo(bt, -1);
+            if (bt == TYPE_BOOLEAN) {
+                info.hasRange = true;
+                info.rangeBase = TYPE_BOOLEAN;
+                info.low = 0;
+                info.high = 1;
+            }
+            return info;
         }
         int idx = symLookup(typeNode->sval);
         if (idx != -1 && tab[idx].obj == OBJ_TYPE) {
@@ -218,9 +289,15 @@ static TypeInfo resolveTypeInfo(AstNode *typeNode) {
     }
 
     if (typeNode->type == AST_ENUMERATED) {
+        int enumRef = symEnterEnum((int)typeNode->childCount);
+        if (enumRef == -1) {
+            semError("Gagal membuat domain enumerated.");
+            return makeTypeInfo(TYPE_NONE, -1);
+        }
+
         for (size_t i = 0; i < typeNode->childCount; i++) {
             AstNode *id = typeNode->children[i];
-            int r = symEnter(id->sval, OBJ_CONSTANT, TYPE_INTEGER, -1, 1, (int)i);
+            int r = symEnter(id->sval, OBJ_CONSTANT, TYPE_INTEGER, enumRef, 1, (int)i);
             if (r == -1) {
                 semError("Redeklarasi identifier enumerated '%s'.", id->sval ? id->sval : "?");
                 return makeTypeInfo(TYPE_NONE, -1);
@@ -230,7 +307,12 @@ static TypeInfo resolveTypeInfo(AstNode *typeNode) {
             id->lexLevel = tab[r].lev;
         }
         typeNode->typeIdx = TYPE_INTEGER;
-        return makeTypeInfo(TYPE_INTEGER, -1);
+        TypeInfo info = makeTypeInfo(TYPE_INTEGER, enumRef);
+        info.hasRange = true;
+        info.rangeBase = TYPE_INTEGER;
+        info.low = 0;
+        info.high = (int)typeNode->childCount - 1;
+        return info;
     }
 
     if (typeNode->type == AST_ARRAY_TYPE) {
@@ -255,6 +337,13 @@ static TypeInfo resolveTypeInfo(AstNode *typeNode) {
             if (indexInfo.hasRange) {
                 low = indexInfo.low;
                 high = indexInfo.high;
+            } else if (indexInfo.type == TYPE_BOOLEAN) {
+                low = 0;
+                high = 1;
+            } else if (indexInfo.ref >= 0 && indexInfo.type == TYPE_INTEGER &&
+                       symEnumCount(indexInfo.ref) > 0) {
+                low = 0;
+                high = symEnumCount(indexInfo.ref) - 1;
             }
         }
 
@@ -270,7 +359,11 @@ static TypeInfo resolveTypeInfo(AstNode *typeNode) {
             elsz = 1;
         }
 
-        int aref = symEnterArray(indexInfo.type, elemInfo.type, elemInfo.ref, low, high, elsz);
+        int aref = symEnterArray(indexInfo.type, indexInfo.ref,
+                                 elemInfo.type, elemInfo.ref,
+                                 low, high, elsz,
+                                 elemInfo.hasRange, elemInfo.rangeBase,
+                                 elemInfo.low, elemInfo.high);
         if (aref == -1) {
             semError("Gagal memasukkan tipe array ke symbol table.");
             return makeTypeInfo(TYPE_NONE, -1);
@@ -393,12 +486,18 @@ static BaseType visitArrayAccessMode(AstNode *node, bool requireInitialized) {
         if (it == TYPE_NONE) {
             return TYPE_NONE;
         }
+        int indexRef = typeRefForNode(node->children[i]);
         if (aref >= 0 && it != atab[aref].xtyp &&
             !((it == TYPE_INTEGER) && (atab[aref].xtyp == TYPE_INTEGER))) {
             if (it != atab[aref].xtyp) {
                 semError("Tipe index array tidak sesuai.");
                 return TYPE_NONE;
             }
+        }
+        if (aref >= 0 && atab[aref].xref >= 0 &&
+            indexRef >= 0 && indexRef != atab[aref].xref) {
+            semError("Domain index array tidak sesuai.");
+            return TYPE_NONE;
         }
         if (atab[aref].low < atab[aref].high) {
             long long value = 0;
@@ -606,12 +705,8 @@ static BaseType visitCall(AstNode *node) {
                 for (int i = 0; i < formalCount; i++) {
                     int f = formalIdx[formalCount - 1 - i];
                     bool ok;
-                    if (tab[f].type == TYPE_ARRAY || tab[f].type == TYPE_RECORD ||
-                        actualTypes[i] == TYPE_ARRAY || actualTypes[i] == TYPE_RECORD) {
-                        ok = tab[f].type == actualTypes[i] && tab[f].ref == actualRefs[i];
-                    } else {
-                        ok = assignmentCompatible(tab[f].type, actualTypes[i]);
-                    }
+                    ok = assignmentCompatibleRef(tab[f].type, tab[f].ref,
+                                                 actualTypes[i], actualRefs[i]);
                     if (!ok) {
                         semError("Tipe parameter ke-%d pada '%s' tidak sesuai.",
                                  i + 1, node->sval ? node->sval : "?");
@@ -840,7 +935,7 @@ static void visitAssign(AstNode *node) {
     if (lt == TYPE_ARRAY || lt == TYPE_RECORD || rt == TYPE_ARRAY || rt == TYPE_RECORD) {
         semError("Structured assignment tidak didukung: assign array/record secara utuh tidak diperbolehkan.");
         return;
-    } else if (!assignmentCompatible(lt, rt)) {
+    } else if (!assignmentCompatibleRef(lt, typeRefForNode(target), rt, typeRefForNode(expr))) {
         semError("Type mismatch: tidak dapat assign %s ke %s.",
                  baseTypeToString(rt), baseTypeToString(lt));
         return;

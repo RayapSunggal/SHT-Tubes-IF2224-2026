@@ -7,12 +7,14 @@
 TabEntry tab[MAX_TAB];
 BtabEntry btab[MAX_BTAB];
 AtabEntry atab[MAX_ATAB];
+ETabEntry etab[MAX_ETAB];
 int display[MAX_DISPLAY];
 int currentLevel = 0;
 
 static int tabCount = 0;
 static int btabCount = 0;
 static int atabCount = 0;
+static int etabCount = 0;
 static int predefinedCount = 0;
 static int recordBlockStack[MAX_BTAB];
 static int recordBlockDepth = 0;
@@ -57,12 +59,21 @@ static void initializeBtabEntry(BtabEntry *entry) {
 
 static void initializeAtabEntry(AtabEntry *entry) {
     entry->xtyp = TYPE_NONE;
+    entry->xref = -1;
     entry->etyp = TYPE_NONE;
     entry->eref = -1;
     entry->low = 0;
     entry->high = 0;
     entry->elsz = 0;
     entry->size = 0;
+    entry->elemHasRange = false;
+    entry->elemRangeBase = TYPE_NONE;
+    entry->elemRangeLow = 0;
+    entry->elemRangeHigh = 0;
+}
+
+static void initializeEtabEntry(ETabEntry *entry) {
+    entry->count = 0;
 }
 
 static int findSameNameInBlock(const char *name, int blockIndex) {
@@ -175,6 +186,7 @@ void symInit(void) {
     tabCount = 0;
     btabCount = 0;
     atabCount = 0;
+    etabCount = 0;
     predefinedCount = 0;
     recordBlockDepth = 0;
 
@@ -188,6 +200,10 @@ void symInit(void) {
 
     for (int i = 0; i < MAX_ATAB; i++) {
         initializeAtabEntry(&atab[i]);
+    }
+
+    for (int i = 0; i < MAX_ETAB; i++) {
+        initializeEtabEntry(&etab[i]);
     }
 
     for (int i = 0; i < MAX_DISPLAY; i++) {
@@ -391,19 +407,42 @@ int symLookup(const char *name) {
     return -1;
 }
 
-int symEnterArray(BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz) {
+int symEnterEnum(int count) {
+    if (etabCount >= MAX_ETAB || count <= 0) {
+        return -1;
+    }
+
+    int idx = etabCount++;
+    etab[idx].count = count;
+    return idx;
+}
+
+int symEnumCount(int enumRef) {
+    if (enumRef < 0 || enumRef >= etabCount) {
+        return 0;
+    }
+    return etab[enumRef].count;
+}
+
+int symEnterArray(BaseType xtyp, int xref, BaseType etyp, int eref, int low, int high, int elsz,
+                  bool elemHasRange, BaseType elemRangeBase, int elemRangeLow, int elemRangeHigh) {
     if (atabCount >= MAX_ATAB || low > high || elsz < 0) {
         return -1;
     }
 
     int idx = atabCount++;
     atab[idx].xtyp = xtyp;
+    atab[idx].xref = xref;
     atab[idx].etyp = etyp;
     atab[idx].eref = eref;
     atab[idx].low = low;
     atab[idx].high = high;
     atab[idx].elsz = elsz;
     atab[idx].size = (high - low + 1) * elsz;
+    atab[idx].elemHasRange = elemHasRange;
+    atab[idx].elemRangeBase = elemRangeBase;
+    atab[idx].elemRangeLow = elemRangeLow;
+    atab[idx].elemRangeHigh = elemRangeHigh;
     return idx;
 }
 
@@ -459,6 +498,7 @@ bool symLoadAtabEntry(int idx, BaseType xtyp, BaseType etyp, int eref, int low, 
 
     initializeAtabEntry(&atab[idx]);
     atab[idx].xtyp = xtyp;
+    atab[idx].xref = -1;
     atab[idx].etyp = etyp;
     atab[idx].eref = eref;
     atab[idx].low = low;
@@ -539,6 +579,10 @@ int symBtabCount(void) {
 
 int symAtabCount(void) {
     return atabCount;
+}
+
+int symEtabCount(void) {
+    return etabCount;
 }
 
 void symPrint(void) {

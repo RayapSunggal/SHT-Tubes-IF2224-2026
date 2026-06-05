@@ -6,6 +6,7 @@
 #define MAX_TAB 512
 #define MAX_BTAB 64
 #define MAX_ATAB 128
+#define MAX_ETAB 128
 #define MAX_DISPLAY 64
 
 typedef enum {
@@ -54,17 +55,27 @@ typedef struct {
 
 typedef struct {
     BaseType xtyp;
+    int xref;
     BaseType etyp;
     int eref;
     int low;
     int high;
     int elsz;
     int size;
+    bool elemHasRange;
+    BaseType elemRangeBase;
+    int elemRangeLow;
+    int elemRangeHigh;
 } AtabEntry;
+
+typedef struct {
+    int count;
+} ETabEntry;
 
 extern TabEntry tab[MAX_TAB];
 extern BtabEntry btab[MAX_BTAB];
 extern AtabEntry atab[MAX_ATAB];
+extern ETabEntry etab[MAX_ETAB];
 extern int display[MAX_DISPLAY];
 extern int currentLevel;
 
@@ -77,7 +88,10 @@ int symEnterField(const char *name, BaseType type, int ref, int adr);
 int symEnter(const char *name, ObjClass obj, BaseType type, int ref, int nrm, int adr);
 void symSetRange(int idx, BaseType rangeBase, int low, int high);
 int symLookup(const char *name);
-int symEnterArray(BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz);
+int symEnterEnum(int count);
+int symEnumCount(int enumRef);
+int symEnterArray(BaseType xtyp, int xref, BaseType etyp, int eref, int low, int high, int elsz,
+                  bool elemHasRange, BaseType elemRangeBase, int elemRangeLow, int elemRangeHigh);
 bool symLoadTabEntry(int idx, const char *name, ObjClass obj, BaseType type, int link, int ref, int nrm, int lev, int adr);
 bool symLoadBtabEntry(int idx, int last, int lpar, int psze, int vsze);
 bool symLoadAtabEntry(int idx, BaseType xtyp, BaseType etyp, int eref, int low, int high, int elsz, int size);
@@ -86,6 +100,7 @@ void symPrint(void);
 int symTabCount(void);
 int symBtabCount(void);
 int symAtabCount(void);
+int symEtabCount(void);
 int symFrameOffsetForTabIndex(int tabIndex);
 int symFrameSlotCountForBlock(int blockIndex);
 int symBlockForTabIndex(int tabIndex);
