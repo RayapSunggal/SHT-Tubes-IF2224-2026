@@ -110,6 +110,26 @@ static bool patchOperand(GeneratorContext *ctx, size_t line, long long operand) 
     return true;
 }
 
+static int functionReturnTabIndexForCallInfo(int functionIndex, int blockIndex) {
+    if (functionIndex < 0 || functionIndex >= symTabCount() ||
+        tab[functionIndex].obj != OBJ_FUNCTION ||
+        blockIndex < 0 || blockIndex >= symBtabCount()) {
+        return -1;
+    }
+
+    for (int i = 0; i < symTabCount(); i++) {
+        if (symBlockForTabIndex(i) == blockIndex &&
+            tab[i].obj == OBJ_VARIABLE &&
+            tab[i].identifier != NULL &&
+            tab[functionIndex].identifier != NULL &&
+            strcasecmp(tab[i].identifier, tab[functionIndex].identifier) == 0) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
 static int valueSizeForTabIndex(int tabIndex) {
     int size;
 
@@ -119,6 +139,80 @@ static int valueSizeForTabIndex(int tabIndex) {
 
     size = sizeOfType(tab[tabIndex].type, tab[tabIndex].ref);
     return size > 0 ? size : 1;
+}
+
+static bool addRuntimeCallInfo(GeneratorContext *ctx, int tabIndex, size_t target) {
+    RuntimeCallInfo info;
+    int blockIndex;
+    int paramCursor = 0;
+
+    if (tabIndex < 0 || tabIndex >= symTabCount() ||
+        (tab[tabIndex].obj != OBJ_PROCEDURE && tab[tabIndex].obj != OBJ_FUNCTION)) {
+        setError(ctx, "Intermediate Code Error: metadata call target tidak valid.");
+        return false;
+    }
+
+    blockIndex = tab[tabIndex].ref;
+    if (blockIndex < 0 || blockIndex >= symBtabCount()) {
+        setError(ctx, "Intermediate Code Error: block metadata call '%s' tidak valid.",
+                 tab[tabIndex].identifier != NULL ? tab[tabIndex].identifier : "?");
+        return false;
+    }
+
+    memset(&info, 0, sizeof(info));
+    info.valid = true;
+    info.target = target;
+    info.lexicalLevel = tab[tabIndex].lev + 1;
+    info.frameSlotCount = symFrameSlotCountForBlock(blockIndex);
+    info.isFunction = tab[tabIndex].obj == OBJ_FUNCTION;
+    if (info.isFunction) {
+        int returnIndex = functionReturnTabIndexForCallInfo(tabIndex, blockIndex);
+        info.returnOffset = returnIndex >= 0 ? symFrameOffsetForTabIndex(returnIndex) : -1;
+        info.returnSlotCount = returnIndex >= 0 ?
+            sizeOfType(tab[returnIndex].type, tab[returnIndex].ref) : 0;
+        if (info.returnSlotCount <= 0) {
+            info.returnSlotCount = 1;
+        }
+    } else {
+        info.returnOffset = -1;
+    }
+    if (tab[tabIndex].identifier != NULL) {
+        (void)snprintf(info.name, sizeof(info.name), "%s", tab[tabIndex].identifier);
+    }
+
+    for (int i = 0; i < symTabCount(); i++) {
+        if (symBlockForTabIndex(i) == blockIndex &&
+            tab[i].obj == OBJ_VARIABLE &&
+            tab[i].nrm == 0) {
+            int offset = symFrameOffsetForTabIndex(i);
+            int size = valueSizeForTabIndex(i);
+            for (int j = 0; j < size; j++) {
+                if (paramCursor >= IC_MAX_CALL_PARAM_SLOTS) {
+                    setError(ctx, "Intermediate Code Error: parameter '%s' terlalu besar.",
+                             info.name[0] != '\0' ? info.name : "?");
+                    return false;
+                }
+                info.parameterOffsets[paramCursor++] = offset + j;
+            }
+        }
+    }
+
+    info.parameterSlotCount = paramCursor;
+    if (info.frameSlotCount < info.parameterSlotCount ||
+        info.lexicalLevel <= 0 ||
+        info.lexicalLevel >= IC_FRAME_ADDRESS_LEVEL_STRIDE) {
+        setError(ctx, "Intermediate Code Error: metadata frame '%s' tidak valid.",
+                 info.name[0] != '\0' ? info.name : "?");
+        return false;
+    }
+
+    if (!instructionListAddCallInfo(ctx->instructions, info)) {
+        setError(ctx, "Intermediate Code Error: gagal menyimpan metadata call '%s'.",
+                 info.name[0] != '\0' ? info.name : "?");
+        return false;
+    }
+
+    return true;
 }
 
 static int globalDataSize(void) {
@@ -319,11 +413,11 @@ static bool emitCall(GeneratorContext *ctx, int tabIndex) {
     size_t target;
 
     if (findLabel(ctx, tabIndex, &target)) {
-        return emitSimple(ctx, OPCODE_CAL, tabIndex, (long long)target);
+        return emitSimple(ctx, OPCODE_CAL, 0, (long long)target);
     }
 
     line = ctx->instructions->count;
-    if (!emitSimple(ctx, OPCODE_CAL, tabIndex, 0)) {
+    if (!emitSimple(ctx, OPCODE_CAL, 0, 0)) {
         return false;
     }
 
@@ -360,6 +454,7 @@ static bool patchPendingCalls(GeneratorContext *ctx) {
 static bool generateExpression(GeneratorContext *ctx, const AstNode *node);
 static bool generateStatement(GeneratorContext *ctx, const AstNode *node);
 static bool generateAddress(GeneratorContext *ctx, const AstNode *node);
+static bool generateFunctionCall(GeneratorContext *ctx, const AstNode *node);
 
 static bool emitConstantLoad(GeneratorContext *ctx, int tabIndex) {
     const AstNode *valueNode = findConstValueNode(ctx, tabIndex);
@@ -501,6 +596,27 @@ static bool nodeTypeRef(GeneratorContext *ctx, const AstNode *node, BaseType *ty
         }
         *type = currentType;
         *ref = currentRef;
+        return true;
+    }
+
+    if (node->type == AST_FUNC_CALL) {
+        int blockIndex;
+        int returnIndex;
+        idx = nodeSymbolIndex(node);
+        if (idx < 0 || idx >= symTabCount() || tab[idx].obj != OBJ_FUNCTION) {
+            setError(ctx, "Intermediate Code Error: function '%s' tidak ditemukan di symbol table.",
+                     node->sval != NULL ? node->sval : "?");
+            return false;
+        }
+        blockIndex = tab[idx].ref;
+        returnIndex = functionReturnTabIndexForCallInfo(idx, blockIndex);
+        if (returnIndex < 0 || returnIndex >= symTabCount()) {
+            setError(ctx, "Intermediate Code Error: return function '%s' tidak valid.",
+                     node->sval != NULL ? node->sval : "?");
+            return false;
+        }
+        *type = tab[returnIndex].type;
+        *ref = tab[returnIndex].ref;
         return true;
     }
 
@@ -932,8 +1048,44 @@ static bool emitStructuredArgument(GeneratorContext *ctx,
         size = 1;
     }
 
+    if (actual != NULL && actual->type == AST_FUNC_CALL) {
+        return generateFunctionCall(ctx, actual);
+    }
+
     for (int offset = 0; offset < size; offset++) {
         if (!emitAddressedSlotLoad(ctx, actual, offset)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool emitStructuredFunctionResultAssignment(GeneratorContext *ctx,
+                                                   const AstNode *target,
+                                                   const AstNode *source,
+                                                   int size) {
+    if (size <= 0) {
+        setError(ctx, "Intermediate Code Error: ukuran structured return tidak valid.");
+        return false;
+    }
+
+    if (!generateFunctionCall(ctx, source)) {
+        return false;
+    }
+
+    for (int offset = size - 1; offset >= 0; offset--) {
+        if (!generateAddress(ctx, target)) {
+            return false;
+        }
+
+        if (offset > 0 &&
+            (!emitIntegerLiteral(ctx, offset) ||
+             !emitSimple(ctx, OPCODE_OPR, 0, OPR_ADD))) {
+            return false;
+        }
+
+        if (!emitSimple(ctx, OPCODE_STO, 1, 0)) {
             return false;
         }
     }
@@ -951,6 +1103,10 @@ static bool emitStructuredAssignment(GeneratorContext *ctx,
     if (size <= 0) {
         setError(ctx, "Intermediate Code Error: ukuran structured assignment tidak valid.");
         return false;
+    }
+
+    if (source != NULL && source->type == AST_FUNC_CALL) {
+        return emitStructuredFunctionResultAssignment(ctx, target, source, size);
     }
 
     for (int offset = 0; offset < size; offset++) {
@@ -1533,7 +1689,8 @@ static bool generateSubprogram(GeneratorContext *ctx, const AstNode *node) {
         return false;
     }
 
-    if (!defineLabel(ctx, tabIndex, ctx->instructions->count)) {
+    if (!defineLabel(ctx, tabIndex, ctx->instructions->count) ||
+        !addRuntimeCallInfo(ctx, tabIndex, ctx->instructions->count)) {
         return false;
     }
 

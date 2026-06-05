@@ -9,6 +9,8 @@
 
 #define IC_FRAME_ADDRESS_BASE (-1073741824LL)
 #define IC_FRAME_ADDRESS_LEVEL_STRIDE 1000000LL
+#define IC_MAX_CALL_PARAM_SLOTS 256
+#define IC_CALL_NAME_MAX 64
 
 typedef enum {
     OPCODE_INT,
@@ -61,15 +63,33 @@ typedef struct {
 } Instruction;
 
 typedef struct {
+    bool valid;
+    size_t target;
+    int lexicalLevel;
+    int frameSlotCount;
+    int parameterSlotCount;
+    int returnOffset;
+    int returnSlotCount;
+    bool isFunction;
+    char name[IC_CALL_NAME_MAX];
+    int parameterOffsets[IC_MAX_CALL_PARAM_SLOTS];
+} RuntimeCallInfo;
+
+typedef struct {
     Instruction *items;
     size_t count;
     size_t capacity;
+    RuntimeCallInfo *callInfos;
+    size_t callInfoCount;
+    size_t callInfoCapacity;
 } InstructionList;
 
 void instructionListInit(InstructionList *list);
 void instructionListFree(InstructionList *list);
 bool instructionListEmit(InstructionList *list, Instruction instruction);
 bool instructionListPatchOperand(InstructionList *list, size_t index, long long operand);
+bool instructionListAddCallInfo(InstructionList *list, RuntimeCallInfo info);
+const RuntimeCallInfo *instructionListFindCallInfo(const InstructionList *list, size_t target);
 
 Instruction instructionCreate(Opcode opcode, int level, long long operand);
 Instruction instructionCreateLiteral(RuntimeValue value);

@@ -10,6 +10,9 @@ void instructionListInit(InstructionList *list) {
     list->items = NULL;
     list->count = 0;
     list->capacity = 0;
+    list->callInfos = NULL;
+    list->callInfoCount = 0;
+    list->callInfoCapacity = 0;
 }
 
 void instructionListFree(InstructionList *list) {
@@ -20,6 +23,7 @@ void instructionListFree(InstructionList *list) {
         instructionFree(&list->items[i]);
     }
     free(list->items);
+    free(list->callInfos);
     instructionListInit(list);
 }
 
@@ -43,6 +47,50 @@ bool instructionListEmit(InstructionList *list, Instruction instruction) {
 
     list->items[list->count++] = instructionCopy(instruction);
     return true;
+}
+
+bool instructionListAddCallInfo(InstructionList *list, RuntimeCallInfo info) {
+    RuntimeCallInfo *newInfos;
+    size_t newCapacity;
+
+    if (list == NULL || !info.valid) {
+        return false;
+    }
+
+    for (size_t i = 0; i < list->callInfoCount; i++) {
+        if (list->callInfos[i].target == info.target) {
+            list->callInfos[i] = info;
+            return true;
+        }
+    }
+
+    if (list->callInfoCount == list->callInfoCapacity) {
+        newCapacity = list->callInfoCapacity == 0 ? 8 : list->callInfoCapacity * 2;
+        newInfos = (RuntimeCallInfo *)realloc(list->callInfos,
+                                              newCapacity * sizeof(RuntimeCallInfo));
+        if (newInfos == NULL) {
+            return false;
+        }
+        list->callInfos = newInfos;
+        list->callInfoCapacity = newCapacity;
+    }
+
+    list->callInfos[list->callInfoCount++] = info;
+    return true;
+}
+
+const RuntimeCallInfo *instructionListFindCallInfo(const InstructionList *list, size_t target) {
+    if (list == NULL) {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < list->callInfoCount; i++) {
+        if (list->callInfos[i].valid && list->callInfos[i].target == target) {
+            return &list->callInfos[i];
+        }
+    }
+
+    return NULL;
 }
 
 bool instructionListPatchOperand(InstructionList *list, size_t index, long long operand) {
@@ -150,6 +198,63 @@ bool oprCodeFromOperator(const char *operatorName, OprCode *code) {
     return false;
 }
 
+static void appendEscapedChar(char *buffer, size_t bufferSize, size_t *pos, char ch) {
+    const char *escape = NULL;
+
+    if (buffer == NULL || bufferSize == 0 || pos == NULL || *pos + 1 >= bufferSize) {
+        return;
+    }
+
+    switch (ch) {
+        case '\\': escape = "\\\\"; break;
+        case '"':  escape = "\\\""; break;
+        case '\n': escape = "\\n"; break;
+        case '\t': escape = "\\t"; break;
+        case '\r': escape = "\\r"; break;
+        default: break;
+    }
+
+    if (escape != NULL) {
+        for (size_t i = 0; escape[i] != '\0' && *pos + 1 < bufferSize; i++) {
+            buffer[(*pos)++] = escape[i];
+        }
+        return;
+    }
+
+    buffer[(*pos)++] = ch;
+}
+
+static void formatStringLiteral(const char *text, char *buffer, size_t bufferSize) {
+    size_t pos = 0;
+
+    if (buffer == NULL || bufferSize == 0) {
+        return;
+    }
+
+    buffer[pos++] = '"';
+    if (text == NULL) {
+        text = "";
+    }
+
+    for (size_t i = 0; text[i] != '\0' && pos + 1 < bufferSize; i++) {
+        appendEscapedChar(buffer, bufferSize, &pos, text[i]);
+    }
+
+    if (pos + 1 < bufferSize) {
+        buffer[pos++] = '"';
+    }
+    buffer[pos] = '\0';
+}
+
+static void formatLiteralOperand(RuntimeValue value, char *buffer, size_t bufferSize) {
+    if (value.type == RUNTIME_VALUE_STRING) {
+        formatStringLiteral(value.stringValue, buffer, bufferSize);
+        return;
+    }
+
+    runtimeValueToString(value, buffer, bufferSize);
+}
+
 void instructionPrint(const Instruction *instruction, size_t line, FILE *stream) {
     char operand[256];
 
@@ -158,9 +263,15 @@ void instructionPrint(const Instruction *instruction, size_t line, FILE *stream)
     }
 
     if (instruction->opcode == OPCODE_LIT) {
-        runtimeValueToString(instruction->literal, operand, sizeof(operand));
+        formatLiteralOperand(instruction->literal, operand, sizeof(operand));
         fprintf(stream, "%zu %s %d %s\n", line, opcodeMnemonic(instruction->opcode),
                 instruction->level, operand);
+        return;
+    }
+
+    if (instruction->opcode == OPCODE_OPR && instruction->operand > OPR_WRTLN) {
+        fprintf(stream, "%zu %s %d %lld ; %s\n", line, opcodeMnemonic(instruction->opcode),
+                instruction->level, instruction->operand, oprCodeName((int)instruction->operand));
         return;
     }
 
@@ -168,11 +279,45 @@ void instructionPrint(const Instruction *instruction, size_t line, FILE *stream)
             instruction->level, instruction->operand);
 }
 
+static void instructionPrintWithMetadata(const InstructionList *list,
+                                         const Instruction *instruction,
+                                         size_t line,
+                                         FILE *stream) {
+    if (instruction == NULL || stream == NULL) {
+        return;
+    }
+
+    if (instruction->opcode == OPCODE_CAL) {
+        const RuntimeCallInfo *info = instructionListFindCallInfo(list, (size_t)instruction->operand);
+        fprintf(stream, "%zu %s %d %lld", line, opcodeMnemonic(instruction->opcode),
+                instruction->level, instruction->operand);
+        if (info != NULL) {
+            fprintf(stream,
+                    " ; CALL name=%s target=%zu lex=%d frameSlots=%d paramSlots=%d returnOffset=%d returnSlots=%d paramOffsets=[",
+                    info->name[0] != '\0' ? info->name : "?",
+                    info->target,
+                    info->lexicalLevel,
+                    info->frameSlotCount,
+                    info->parameterSlotCount,
+                    info->returnOffset,
+                    info->returnSlotCount);
+            for (int i = 0; i < info->parameterSlotCount; i++) {
+                fprintf(stream, "%s%d", i == 0 ? "" : ",", info->parameterOffsets[i]);
+            }
+            fprintf(stream, "]");
+        }
+        fprintf(stream, "\n");
+        return;
+    }
+
+    instructionPrint(instruction, line, stream);
+}
+
 void instructionListPrint(const InstructionList *list, FILE *stream) {
     if (list == NULL || stream == NULL) {
         return;
     }
     for (size_t i = 0; i < list->count; i++) {
-        instructionPrint(&list->items[i], i, stream);
+        instructionPrintWithMetadata(list, &list->items[i], i, stream);
     }
 }

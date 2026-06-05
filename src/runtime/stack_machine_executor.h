@@ -28,6 +28,7 @@ typedef struct {
     size_t bp;
     size_t frameSlots;
     long long returnOffset;
+    int returnSlotCount;
     int currentFrameLexLevel;
     int currentFrameBlockIndex;
     RuntimeFrameRef display[STACK_MACHINE_MAX_DISPLAY];
