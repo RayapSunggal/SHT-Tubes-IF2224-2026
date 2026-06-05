@@ -8,7 +8,7 @@
 
 #define ARION_INT_MIN (-2147483647LL - 1LL)
 #define ARION_INT_MAX 2147483647LL
-#define FRAME_META_COUNT 12
+#define FRAME_META_COUNT 13
 
 static void clearError(StackMachineExecutor *executor) {
     if (executor != NULL) {
@@ -320,6 +320,7 @@ static bool pushCallFrame(StackMachineExecutor *executor,
     size_t previousSlots = executor->frameSlots;
     long long previousReturnOffset = executor->returnOffset;
     int previousReturnSlotCount = executor->returnSlotCount;
+    bool previousReturnIsStructured = executor->returnIsStructured;
     int previousFrameLexLevel = executor->currentFrameLexLevel;
     int previousFrameBlockIndex = executor->currentFrameBlockIndex;
 
@@ -377,6 +378,7 @@ static bool pushCallFrame(StackMachineExecutor *executor,
         !pushInteger(executor, instruction, (long long)previousSlots) ||
         !pushInteger(executor, instruction, previousReturnOffset) ||
         !pushInteger(executor, instruction, (long long)previousReturnSlotCount) ||
+        !pushInteger(executor, instruction, previousReturnIsStructured ? 1 : 0) ||
         !pushInteger(executor, instruction, (long long)previousFrameLexLevel) ||
         !pushInteger(executor, instruction, (long long)previousFrameBlockIndex) ||
         !pushInteger(executor, instruction, previousDisplay.active ? 1 : 0) ||
@@ -392,6 +394,7 @@ static bool pushCallFrame(StackMachineExecutor *executor,
     executor->frameSlots = (size_t)slotCount;
     executor->returnOffset = returnOffset;
     executor->returnSlotCount = callInfo->returnSlotCount;
+    executor->returnIsStructured = callInfo->structuredReturn;
     executor->currentFrameLexLevel = calleeLexLevel;
     executor->currentFrameBlockIndex = -1;
     executor->display[calleeLexLevel].active = true;
@@ -408,6 +411,7 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
     long long previousSlots;
     long long previousReturnOffset;
     long long previousReturnSlotCount;
+    long long previousReturnIsStructured;
     long long previousFrameLexLevel;
     long long previousFrameBlockIndex;
     long long previousDisplayActive;
@@ -434,14 +438,15 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
         !stackReadInteger(executor, instruction, metaStart + 1, &previousSlots) ||
         !stackReadInteger(executor, instruction, metaStart + 2, &previousReturnOffset) ||
         !stackReadInteger(executor, instruction, metaStart + 3, &previousReturnSlotCount) ||
-        !stackReadInteger(executor, instruction, metaStart + 4, &previousFrameLexLevel) ||
-        !stackReadInteger(executor, instruction, metaStart + 5, &previousFrameBlockIndex) ||
-        !stackReadInteger(executor, instruction, metaStart + 6, &previousDisplayActive) ||
-        !stackReadInteger(executor, instruction, metaStart + 7, &previousDisplayBp) ||
-        !stackReadInteger(executor, instruction, metaStart + 8, &previousDisplaySlots) ||
-        !stackReadInteger(executor, instruction, metaStart + 9, &previousDisplayBlockIndex) ||
-        !stackReadInteger(executor, instruction, metaStart + 10, &returnTarget) ||
-        !stackReadInteger(executor, instruction, metaStart + 11, &canary)) {
+        !stackReadInteger(executor, instruction, metaStart + 4, &previousReturnIsStructured) ||
+        !stackReadInteger(executor, instruction, metaStart + 5, &previousFrameLexLevel) ||
+        !stackReadInteger(executor, instruction, metaStart + 6, &previousFrameBlockIndex) ||
+        !stackReadInteger(executor, instruction, metaStart + 7, &previousDisplayActive) ||
+        !stackReadInteger(executor, instruction, metaStart + 8, &previousDisplayBp) ||
+        !stackReadInteger(executor, instruction, metaStart + 9, &previousDisplaySlots) ||
+        !stackReadInteger(executor, instruction, metaStart + 10, &previousDisplayBlockIndex) ||
+        !stackReadInteger(executor, instruction, metaStart + 11, &returnTarget) ||
+        !stackReadInteger(executor, instruction, metaStart + 12, &canary)) {
         return false;
     }
 
@@ -450,9 +455,8 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
         return false;
     }
 
-    if (executor->returnOffset >= 0) {
-        if (returnSlotCount <= 0 ||
-            executor->returnOffset < 0 ||
+    if (executor->returnOffset >= 0 && returnSlotCount > 0) {
+        if (executor->returnOffset < 0 ||
             (size_t)executor->returnOffset + (size_t)returnSlotCount > executor->frameSlots) {
             setRuntimeError(executor, instruction, "Function return slot range is invalid");
             return false;
@@ -476,7 +480,8 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
                 free(returnValues);
                 return false;
             }
-            if (!ensureInitializedValue(executor, instruction, returnValues[i], "Function return value")) {
+            if (!executor->returnIsStructured &&
+                !ensureInitializedValue(executor, instruction, returnValues[i], "Function return value")) {
                 for (int j = 0; j <= i; j++) {
                     runtimeValueFree(&returnValues[j]);
                 }
@@ -500,6 +505,7 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
     executor->frameSlots = previousSlots < 0 ? 0 : (size_t)previousSlots;
     executor->returnOffset = previousReturnOffset;
     executor->returnSlotCount = previousReturnSlotCount < 0 ? 0 : (int)previousReturnSlotCount;
+    executor->returnIsStructured = previousReturnIsStructured != 0;
     if (calleeLexLevel > 0 && calleeLexLevel < STACK_MACHINE_MAX_DISPLAY) {
         executor->display[calleeLexLevel].active = previousDisplayActive != 0;
         executor->display[calleeLexLevel].bp = previousDisplayBp < 0 ? 0 : (size_t)previousDisplayBp;
@@ -528,19 +534,13 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
     return true;
 }
 
-static bool popNumericPair(StackMachineExecutor *executor, const Instruction *instruction,
-                           RuntimeValue *left, RuntimeValue *right) {
+static bool popValuePair(StackMachineExecutor *executor, const Instruction *instruction,
+                         RuntimeValue *left, RuntimeValue *right) {
     if (!stackPop(executor, instruction, right)) {
         return false;
     }
     if (!stackPop(executor, instruction, left)) {
         runtimeValueFree(right);
-        return false;
-    }
-    if (!runtimeValueIsNumeric(*left) || !runtimeValueIsNumeric(*right)) {
-        runtimeValueFree(left);
-        runtimeValueFree(right);
-        setRuntimeError(executor, instruction, "%s requires numeric operands", oprCodeName((int)instruction->operand));
         return false;
     }
     return true;
@@ -674,6 +674,32 @@ static bool pushRealResult(StackMachineExecutor *executor, const Instruction *in
     return ok;
 }
 
+static bool executeStringConcat(StackMachineExecutor *executor,
+                                const Instruction *instruction,
+                                RuntimeValue left,
+                                RuntimeValue right) {
+    const char *leftText = left.stringValue != NULL ? left.stringValue : "";
+    const char *rightText = right.stringValue != NULL ? right.stringValue : "";
+    size_t leftLen = strlen(leftText);
+    size_t rightLen = strlen(rightText);
+    char *joined = (char *)malloc(leftLen + rightLen + 1);
+    RuntimeValue result;
+    bool ok;
+
+    if (joined == NULL) {
+        setRuntimeError(executor, instruction, "String concatenation allocation failed");
+        return false;
+    }
+
+    memcpy(joined, leftText, leftLen);
+    memcpy(joined + leftLen, rightText, rightLen + 1);
+    result = runtimeValueString(joined);
+    free(joined);
+    ok = stackPush(executor, instruction, result);
+    runtimeValueFree(&result);
+    return ok;
+}
+
 static bool compareValues(RuntimeValue left, RuntimeValue right, OprCode code, bool *result) {
     if (runtimeValueIsNumeric(left) && runtimeValueIsNumeric(right)) {
         double l = runtimeValueAsDouble(left);
@@ -742,7 +768,23 @@ static bool executeArithmetic(StackMachineExecutor *executor, const Instruction 
     RuntimeValue right = runtimeValueNone();
     bool ok = false;
 
-    if (!popNumericPair(executor, instruction, &left, &right)) {
+    if (!popValuePair(executor, instruction, &left, &right)) {
+        return false;
+    }
+
+    if (code == OPR_ADD &&
+        left.type == RUNTIME_VALUE_STRING &&
+        right.type == RUNTIME_VALUE_STRING) {
+        ok = executeStringConcat(executor, instruction, left, right);
+        runtimeValueFree(&left);
+        runtimeValueFree(&right);
+        return ok;
+    }
+
+    if (!runtimeValueIsNumeric(left) || !runtimeValueIsNumeric(right)) {
+        runtimeValueFree(&left);
+        runtimeValueFree(&right);
+        setRuntimeError(executor, instruction, "%s requires numeric operands", oprCodeName((int)code));
         return false;
     }
 
@@ -788,7 +830,12 @@ static bool executeArithmetic(StackMachineExecutor *executor, const Instruction 
                 if (r == 0) {
                     setRuntimeError(executor, instruction, "Division by Zero in MOD");
                 } else {
-                    ok = checkedIntResult(executor, instruction, l % r);
+                    long long divisorAbs = r < 0 ? -r : r;
+                    long long remainder = l % divisorAbs;
+                    if (remainder < 0) {
+                        remainder += divisorAbs;
+                    }
+                    ok = checkedIntResult(executor, instruction, remainder);
                 }
                 break;
             default:
@@ -989,6 +1036,7 @@ void stackMachineExecutorInit(StackMachineExecutor *executor) {
     executor->frameSlots = 0;
     executor->returnOffset = -1;
     executor->returnSlotCount = 0;
+    executor->returnIsStructured = false;
     executor->currentFrameLexLevel = 0;
     executor->currentFrameBlockIndex = -1;
     executor->output = NULL;
@@ -1024,6 +1072,7 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
     executor->frameSlots = 0;
     executor->returnOffset = -1;
     executor->returnSlotCount = 0;
+    executor->returnIsStructured = false;
     executor->currentFrameLexLevel = 0;
     executor->currentFrameBlockIndex = -1;
     clearRuntimeDisplay(executor);
@@ -1055,7 +1104,8 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
                 }
                 executor->pc++;
                 break;
-            case OPCODE_LOD: {
+            case OPCODE_LOD:
+            case OPCODE_RLOD: {
                 RuntimeValue value = runtimeValueNone();
                 long long address = instruction->operand;
                 int frameLexLevel = -1;
@@ -1090,7 +1140,8 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
                     setRuntimeError(executor, instruction, "Invalid LOD addressing mode %d", instruction->level);
                     return false;
                 }
-                if (!ensureInitializedValue(executor, instruction, value, "Loaded value")) {
+                if (instruction->opcode == OPCODE_LOD &&
+                    !ensureInitializedValue(executor, instruction, value, "Loaded value")) {
                     runtimeValueFree(&value);
                     return false;
                 }

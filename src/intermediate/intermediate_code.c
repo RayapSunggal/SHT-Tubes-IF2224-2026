@@ -142,6 +142,7 @@ const char *opcodeMnemonic(Opcode opcode) {
         case OPCODE_INT: return "INT";
         case OPCODE_LIT: return "LIT";
         case OPCODE_LOD: return "LOD";
+        case OPCODE_RLOD: return "LOD";
         case OPCODE_STO: return "STO";
         case OPCODE_CAL: return "CAL";
         case OPCODE_JMP: return "JMP";
@@ -275,6 +276,12 @@ void instructionPrint(const Instruction *instruction, size_t line, FILE *stream)
         return;
     }
 
+    if (instruction->opcode == OPCODE_RLOD) {
+        fprintf(stream, "%zu LOD %d %lld ; RAW_LOAD allow_uninitialized=true\n",
+                line, instruction->level, instruction->operand);
+        return;
+    }
+
     fprintf(stream, "%zu %s %d %lld\n", line, opcodeMnemonic(instruction->opcode),
             instruction->level, instruction->operand);
 }
@@ -293,14 +300,15 @@ static void instructionPrintWithMetadata(const InstructionList *list,
                 instruction->level, instruction->operand);
         if (info != NULL) {
             fprintf(stream,
-                    " ; CALL name=%s target=%zu lex=%d frameSlots=%d paramSlots=%d returnOffset=%d returnSlots=%d paramOffsets=[",
+                    " ; CALL name=%s target=%zu lex=%d frameSlots=%d paramSlots=%d returnOffset=%d returnSlots=%d structuredReturn=%s paramOffsets=[",
                     info->name[0] != '\0' ? info->name : "?",
                     info->target,
                     info->lexicalLevel,
                     info->frameSlotCount,
                     info->parameterSlotCount,
                     info->returnOffset,
-                    info->returnSlotCount);
+                    info->returnSlotCount,
+                    info->structuredReturn ? "true" : "false");
             for (int i = 0; i < info->parameterSlotCount; i++) {
                 fprintf(stream, "%s%d", i == 0 ? "" : ",", info->parameterOffsets[i]);
             }

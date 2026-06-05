@@ -822,6 +822,10 @@ static BaseType visitBinOp(AstNode *node) {
             semError("Operator aritmatika '%s' tidak dapat digunakan pada enum.", op);
             return TYPE_NONE;
         }
+        if (strcmp(op, "plus") == 0 && lt == TYPE_STRING && rt == TYPE_STRING) {
+            node->typeIdx = TYPE_STRING;
+            return TYPE_STRING;
+        }
         if (!((lt == TYPE_INTEGER || lt == TYPE_REAL) &&
               (rt == TYPE_INTEGER || rt == TYPE_REAL))) {
             semError("Operator aritmatika '%s' membutuhkan operand numerik.", op);

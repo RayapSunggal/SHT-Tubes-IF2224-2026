@@ -170,7 +170,9 @@ static bool addRuntimeCallInfo(GeneratorContext *ctx, int tabIndex, size_t targe
         info.returnOffset = returnIndex >= 0 ? symFrameOffsetForTabIndex(returnIndex) : -1;
         info.returnSlotCount = returnIndex >= 0 ?
             sizeOfType(tab[returnIndex].type, tab[returnIndex].ref) : 0;
-        if (info.returnSlotCount <= 0) {
+        info.structuredReturn = returnIndex >= 0 &&
+            (tab[returnIndex].type == TYPE_ARRAY || tab[returnIndex].type == TYPE_RECORD);
+        if (!info.structuredReturn && info.returnSlotCount <= 0) {
             info.returnSlotCount = 1;
         }
     } else {
@@ -1014,7 +1016,10 @@ static bool emitValueGuardsForTabIndex(GeneratorContext *ctx, int tabIndex, Base
                                   tab[tabIndex].rangeHigh);
 }
 
-static bool emitAddressedSlotLoad(GeneratorContext *ctx, const AstNode *node, int offset) {
+static bool emitAddressedSlotLoadWithOpcode(GeneratorContext *ctx,
+                                            const AstNode *node,
+                                            int offset,
+                                            Opcode opcode) {
     if (offset < 0) {
         setError(ctx, "Intermediate Code Error: offset structured value tidak valid.");
         return false;
@@ -1030,7 +1035,11 @@ static bool emitAddressedSlotLoad(GeneratorContext *ctx, const AstNode *node, in
         return false;
     }
 
-    return emitSimple(ctx, OPCODE_LOD, 1, 0);
+    return emitSimple(ctx, opcode, 1, 0);
+}
+
+static bool emitAddressedSlotRawLoad(GeneratorContext *ctx, const AstNode *node, int offset) {
+    return emitAddressedSlotLoadWithOpcode(ctx, node, offset, OPCODE_RLOD);
 }
 
 static bool emitStructuredArgument(GeneratorContext *ctx,
@@ -1053,7 +1062,7 @@ static bool emitStructuredArgument(GeneratorContext *ctx,
     }
 
     for (int offset = 0; offset < size; offset++) {
-        if (!emitAddressedSlotLoad(ctx, actual, offset)) {
+        if (!emitAddressedSlotRawLoad(ctx, actual, offset)) {
             return false;
         }
     }
@@ -1066,8 +1075,7 @@ static bool emitStructuredFunctionResultAssignment(GeneratorContext *ctx,
                                                    const AstNode *source,
                                                    int size) {
     if (size <= 0) {
-        setError(ctx, "Intermediate Code Error: ukuran structured return tidak valid.");
-        return false;
+        return generateFunctionCall(ctx, source);
     }
 
     if (!generateFunctionCall(ctx, source)) {
@@ -1101,8 +1109,10 @@ static bool emitStructuredAssignment(GeneratorContext *ctx,
     int size = sizeOfType(targetType, targetRef);
 
     if (size <= 0) {
-        setError(ctx, "Intermediate Code Error: ukuran structured assignment tidak valid.");
-        return false;
+        if (source != NULL && source->type == AST_FUNC_CALL) {
+            return generateFunctionCall(ctx, source);
+        }
+        return true;
     }
 
     if (source != NULL && source->type == AST_FUNC_CALL) {
@@ -1110,7 +1120,7 @@ static bool emitStructuredAssignment(GeneratorContext *ctx,
     }
 
     for (int offset = 0; offset < size; offset++) {
-        if (!emitAddressedSlotLoad(ctx, source, offset) ||
+        if (!emitAddressedSlotRawLoad(ctx, source, offset) ||
             !generateAddress(ctx, target)) {
             return false;
         }

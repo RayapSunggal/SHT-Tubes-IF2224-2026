@@ -2252,7 +2252,7 @@ static ParseTreeNode *parseStatementList(Parser *ps) {
         return node;
     }
 
-    if (parserCurrentType(ps)==TOKEN_SEMICOLON) {
+    while (parserCurrentType(ps)==TOKEN_SEMICOLON) {
         if (!parserExpectToken(ps, TOKEN_SEMICOLON, node)) {
             parseTreeFree(node);
             return NULL;

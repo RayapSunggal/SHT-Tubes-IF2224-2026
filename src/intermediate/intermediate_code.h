@@ -16,6 +16,7 @@ typedef enum {
     OPCODE_INT,
     OPCODE_LIT,
     OPCODE_LOD,
+    OPCODE_RLOD,
     OPCODE_STO,
     OPCODE_CAL,
     OPCODE_JMP,
@@ -71,6 +72,7 @@ typedef struct {
     int returnOffset;
     int returnSlotCount;
     bool isFunction;
+    bool structuredReturn;
     char name[IC_CALL_NAME_MAX];
     int parameterOffsets[IC_MAX_CALL_PARAM_SLOTS];
 } RuntimeCallInfo;
