@@ -6,6 +6,6 @@ begin
   b := 5;
   writeln(a > b);
   writeln(a == b);
-  writeln(a != b);
+  writeln(a <> b);
 end.
 
