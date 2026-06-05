@@ -94,6 +94,11 @@ static bool appendOutput(StackMachineExecutor *executor, const char *text) {
 static bool appendValueOutput(StackMachineExecutor *executor, RuntimeValue value, bool newline) {
     char buffer[256];
 
+    if (value.type == RUNTIME_VALUE_NONE) {
+        setRuntimeError(executor, NULL, "Uninitialized value cannot be written");
+        return false;
+    }
+
     runtimeValueToString(value, buffer, sizeof(buffer));
     if (!appendOutput(executor, buffer)) {
         return false;
@@ -102,6 +107,19 @@ static bool appendValueOutput(StackMachineExecutor *executor, RuntimeValue value
         return false;
     }
     return true;
+}
+
+static bool ensureInitializedValue(StackMachineExecutor *executor,
+                                   const Instruction *instruction,
+                                   RuntimeValue value,
+                                   const char *context) {
+    if (value.type != RUNTIME_VALUE_NONE) {
+        return true;
+    }
+
+    setRuntimeError(executor, instruction, "%s is uninitialized",
+                    context != NULL ? context : "Value");
+    return false;
 }
 
 static bool stackPop(StackMachineExecutor *executor, const Instruction *instruction, RuntimeValue *out) {
@@ -459,6 +477,10 @@ static bool popCallFrame(StackMachineExecutor *executor, const Instruction *inst
     if (executor->returnOffset >= 0) {
         if ((size_t)executor->returnOffset >= executor->frameSlots ||
             !stackGetAt(executor, instruction, executor->bp + (size_t)executor->returnOffset, &returnValue)) {
+            return false;
+        }
+        if (!ensureInitializedValue(executor, instruction, returnValue, "Function return value")) {
+            runtimeValueFree(&returnValue);
             return false;
         }
         hasReturnValue = true;
@@ -1052,6 +1074,10 @@ bool stackMachineExecute(StackMachineExecutor *executor, const InstructionList *
                     }
                 } else {
                     setRuntimeError(executor, instruction, "Invalid LOD addressing mode %d", instruction->level);
+                    return false;
+                }
+                if (!ensureInitializedValue(executor, instruction, value, "Loaded value")) {
+                    runtimeValueFree(&value);
                     return false;
                 }
                 if (!stackPush(executor, instruction, value)) {

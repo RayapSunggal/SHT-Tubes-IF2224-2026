@@ -151,6 +151,8 @@ static BaseType visitExpression(AstNode *node);
 static void visitStatement(AstNode *node);
 static void visitDeclPart(AstNode *node);
 static void visitBlock(AstNode *node);
+static int arrayAccessResultRef(AstNode *node);
+static BaseType visitFieldAccessMode(AstNode *node, bool requireInitialized);
 static int typeRefForNode(AstNode *node);
 static BaseType lvalueType(AstNode *target);
 static void markAssigned(AstNode *target);
@@ -332,7 +334,8 @@ static BaseType resolveVarReference(AstNode *node, bool requireInitialized) {
                  node->sval ? node->sval : "?");
         return TYPE_NONE;
     }
-    if (requireInitialized && tab[idx].obj == OBJ_VARIABLE && !tab[idx].initialized) {
+    if (requireInitialized && tab[idx].obj == OBJ_VARIABLE &&
+        !tab[idx].initialized && tab[idx].lev == currentLevel) {
         semError("Variabel '%s' digunakan sebelum diinisialisasi.",
                  node->sval ? node->sval : "?");
         return TYPE_NONE;
@@ -352,29 +355,38 @@ static BaseType visitArrayAccessMode(AstNode *node, bool requireInitialized) {
         return TYPE_NONE;
     }
     AstNode *base = node->children[0];
-    if (base->type != AST_VAR) {
+    BaseType baseType = TYPE_NONE;
+    int aref = -1;
+
+    if (base->type == AST_VAR) {
+        baseType = resolveVarReference(base, requireInitialized);
+        if (baseType == TYPE_NONE) {
+            return TYPE_NONE;
+        }
+        aref = tab[base->tabIdx].ref;
+    } else if (base->type == AST_ARRAY_ACCESS) {
+        baseType = visitArrayAccessMode(base, requireInitialized);
+        aref = arrayAccessResultRef(base);
+    } else if (base->type == AST_FIELD_ACCESS) {
+        baseType = visitFieldAccessMode(base, requireInitialized);
+        aref = base->tabIdx >= 0 ? tab[base->tabIdx].ref : -1;
+    } else {
+        semError("Target index array bukan array.");
         return TYPE_NONE;
     }
-    BaseType baseType = resolveVarReference(base, requireInitialized);
-    if (baseType == TYPE_NONE) {
-        return TYPE_NONE;
-    }
-    int idx = base->tabIdx;
-    node->tabIdx = idx;
-    node->lexLevel = tab[idx].lev;
+
+    node->tabIdx = base->tabIdx;
+    node->lexLevel = base->lexLevel;
 
     if (baseType != TYPE_ARRAY) {
-        semError("Identifier '%s' bukan array sehingga tidak dapat diindeks.",
-                 base->sval ? base->sval : "?");
+        semError("Target index array bukan array.");
         return TYPE_NONE;
     }
 
-    int aref = tab[idx].ref;
-    BaseType currentType = tab[idx].type;
+    BaseType currentType = baseType;
     for (size_t i = 1; i < node->childCount; i++) {
         if (currentType != TYPE_ARRAY || aref < 0) {
-            semError("Jumlah index array '%s' melebihi dimensi array.",
-                     base->sval ? base->sval : "?");
+            semError("Jumlah index array melebihi dimensi array.");
             return TYPE_NONE;
         }
         BaseType it = visitExpression(node->children[i]);
@@ -384,8 +396,7 @@ static BaseType visitArrayAccessMode(AstNode *node, bool requireInitialized) {
         if (aref >= 0 && it != atab[aref].xtyp &&
             !((it == TYPE_INTEGER) && (atab[aref].xtyp == TYPE_INTEGER))) {
             if (it != atab[aref].xtyp) {
-                semError("Tipe index array '%s' tidak sesuai.",
-                         base->sval ? base->sval : "?");
+                semError("Tipe index array tidak sesuai.");
                 return TYPE_NONE;
             }
         }
@@ -395,8 +406,7 @@ static BaseType visitArrayAccessMode(AstNode *node, bool requireInitialized) {
             if (constantValue(node->children[i], &value, &valueType) &&
                 valueType == atab[aref].xtyp &&
                 (value < atab[aref].low || value > atab[aref].high)) {
-                semError("Index array '%s' berada di luar range %d..%d.",
-                         base->sval ? base->sval : "?",
+                semError("Index array berada di luar range %d..%d.",
                          atab[aref].low,
                          atab[aref].high);
                 return TYPE_NONE;
@@ -828,13 +838,8 @@ static void visitAssign(AstNode *node) {
     }
 
     if (lt == TYPE_ARRAY || lt == TYPE_RECORD || rt == TYPE_ARRAY || rt == TYPE_RECORD) {
-        int lref = typeRefForNode(target);
-        int rref = typeRefForNode(expr);
-        if (lt != rt || lref != rref) {
-            semError("Type mismatch: structured assignment tidak kompatibel (%s ke %s).",
-                     baseTypeToString(rt), baseTypeToString(lt));
-            return;
-        }
+        semError("Structured assignment tidak didukung: assign array/record secara utuh tidak diperbolehkan.");
+        return;
     } else if (!assignmentCompatible(lt, rt)) {
         semError("Type mismatch: tidak dapat assign %s ke %s.",
                  baseTypeToString(rt), baseTypeToString(lt));

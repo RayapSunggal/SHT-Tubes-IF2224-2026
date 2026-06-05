@@ -688,6 +688,8 @@ static bool emitIdentifierLoad(GeneratorContext *ctx, const AstNode *node) {
 
 static bool generateBinaryExpression(GeneratorContext *ctx, const AstNode *node) {
     OprCode code;
+    size_t falseJump;
+    size_t endJump;
 
     if (node->childCount < 2) {
         setError(ctx, "Intermediate Code Error: binary expression tidak lengkap.");
@@ -696,18 +698,22 @@ static bool generateBinaryExpression(GeneratorContext *ctx, const AstNode *node)
 
     if (node->sval != NULL && strcasecmp(node->sval, "orsy") == 0) {
         return generateExpression(ctx, node->children[0]) &&
+               emitPatchable(ctx, OPCODE_JPC, &falseJump) &&
+               emitLiteral(ctx, runtimeValueBoolean(true)) &&
+               emitPatchable(ctx, OPCODE_JMP, &endJump) &&
+               patchOperand(ctx, falseJump, (long long)ctx->instructions->count) &&
                generateExpression(ctx, node->children[1]) &&
-               emitSimple(ctx, OPCODE_OPR, 0, OPR_ADD) &&
-               emitIntegerLiteral(ctx, 0) &&
-               emitSimple(ctx, OPCODE_OPR, 0, OPR_GTR);
+               patchOperand(ctx, endJump, (long long)ctx->instructions->count);
     }
 
     if (node->sval != NULL && strcasecmp(node->sval, "andsy") == 0) {
         return generateExpression(ctx, node->children[0]) &&
+               emitPatchable(ctx, OPCODE_JPC, &falseJump) &&
                generateExpression(ctx, node->children[1]) &&
-               emitSimple(ctx, OPCODE_OPR, 0, OPR_MUL) &&
-               emitIntegerLiteral(ctx, 0) &&
-               emitSimple(ctx, OPCODE_OPR, 0, OPR_NEQ);
+               emitPatchable(ctx, OPCODE_JMP, &endJump) &&
+               patchOperand(ctx, falseJump, (long long)ctx->instructions->count) &&
+               emitLiteral(ctx, runtimeValueBoolean(false)) &&
+               patchOperand(ctx, endJump, (long long)ctx->instructions->count);
     }
 
     if (!oprCodeFromOperator(node->sval, &code)) {
@@ -830,46 +836,6 @@ static bool emitAddressedSlotLoad(GeneratorContext *ctx, const AstNode *node, in
     }
 
     return emitSimple(ctx, OPCODE_LOD, 1, 0);
-}
-
-static bool emitAddressedSlotStore(GeneratorContext *ctx, const AstNode *node, int offset) {
-    if (offset < 0) {
-        setError(ctx, "Intermediate Code Error: offset structured value tidak valid.");
-        return false;
-    }
-
-    if (!generateAddress(ctx, node)) {
-        return false;
-    }
-
-    if (offset > 0 &&
-        (!emitIntegerLiteral(ctx, offset) ||
-         !emitSimple(ctx, OPCODE_OPR, 0, OPR_ADD))) {
-        return false;
-    }
-
-    return emitSimple(ctx, OPCODE_STO, 1, 0);
-}
-
-static bool emitStructuredAssignment(GeneratorContext *ctx,
-                                     const AstNode *target,
-                                     const AstNode *source,
-                                     BaseType type,
-                                     int ref) {
-    int size = sizeOfType(type, ref);
-
-    if (size <= 0) {
-        size = 1;
-    }
-
-    for (int offset = 0; offset < size; offset++) {
-        if (!emitAddressedSlotLoad(ctx, source, offset) ||
-            !emitAddressedSlotStore(ctx, target, offset)) {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 static bool emitStructuredArgument(GeneratorContext *ctx,
@@ -1050,11 +1016,10 @@ static bool generateAssignment(GeneratorContext *ctx, const AstNode *node) {
 
     if (targetType == TYPE_ARRAY || targetType == TYPE_RECORD ||
         sourceType == TYPE_ARRAY || sourceType == TYPE_RECORD) {
-        if (targetType != sourceType || targetRef != sourceRef) {
-            setError(ctx, "Intermediate Code Error: structured assignment tidak kompatibel.");
-            return false;
-        }
-        return emitStructuredAssignment(ctx, target, source, targetType, targetRef);
+        (void)targetRef;
+        (void)sourceRef;
+        setError(ctx, "Intermediate Code Error: structured assignment tidak didukung.");
+        return false;
     }
 
     if (!generateExpression(ctx, source) ||
