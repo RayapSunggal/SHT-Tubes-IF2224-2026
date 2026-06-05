@@ -1239,6 +1239,18 @@ static ParseTreeNode *parseFormalParameterList(Parser *ps) {
         return NULL;
     }
 
+    if (parserCurrentType(ps)==TOKEN_RPARENT) {
+        parserRecordSyntaxErrorCurrent(
+            ps,
+            "Formal parameter list cannot be empty; omit parentheses for parameterless declarations."
+        );
+        if (!parserExpectToken(ps, TOKEN_RPARENT, node)) {
+            parseTreeFree(node);
+            return NULL;
+        }
+        return node;
+    }
+
     parameterGroup=parseParameterGroup(ps);
     if (parameterGroup==NULL || !parserAttachChild(ps, node, parameterGroup)) {
         parseTreeFree(node);
@@ -1575,19 +1587,30 @@ static ParseTreeNode *parseProcedureFunctionCall(Parser *ps) {
         return NULL;
     }
 
-    if (parserAcceptToken(ps, TOKEN_LPARENT, node)) {
-        if (parserCurrentType(ps)!=TOKEN_RPARENT) {
-            ParseTreeNode *parameterListNode=parseParameterList(ps);
-            if (parameterListNode==NULL || !parserAttachChild(ps, node, parameterListNode)) {
-                parseTreeFree(node);
-                return NULL;
-            }
-        }
+    if (parserCurrentType(ps)!=TOKEN_LPARENT) {
+        parserRecordSyntaxErrorCurrent(
+            ps,
+            "Procedure/function call must use parentheses, even when it has no arguments."
+        );
+        return node;
+    }
 
-        if (!parserExpectToken(ps, TOKEN_RPARENT, node)) {
+    if (!parserExpectToken(ps, TOKEN_LPARENT, node)) {
+        parseTreeFree(node);
+        return NULL;
+    }
+
+    if (parserCurrentType(ps)!=TOKEN_RPARENT) {
+        ParseTreeNode *parameterListNode=parseParameterList(ps);
+        if (parameterListNode==NULL || !parserAttachChild(ps, node, parameterListNode)) {
             parseTreeFree(node);
             return NULL;
         }
+    }
+
+    if (!parserExpectToken(ps, TOKEN_RPARENT, node)) {
+        parseTreeFree(node);
+        return NULL;
     }
 
     return node;
@@ -2022,7 +2045,7 @@ static ParseTreeNode *parseCaseStatement(Parser *ps) {
 static ParseTreeNode *parseWhileStatement(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<while-statement>");
     ParseTreeNode *exprNode;
-    ParseTreeNode *compoundNode;
+    ParseTreeNode *statementNode;
 
     if (node==NULL) {
         return NULL;
@@ -2044,12 +2067,8 @@ static ParseTreeNode *parseWhileStatement(Parser *ps) {
         return NULL;
     }
 
-    if (parserCurrentType(ps)!=TOKEN_BEGINSY) {
-        parserRecordSyntaxErrorCurrent(ps, "Expected 'begin' (compound-statement) after 'do' in while-statement.");
-    }
-
-    compoundNode=parseCompoundStatement(ps);
-    if (compoundNode==NULL || !parserAttachChild(ps, node, compoundNode)) {
+    statementNode=parseStatement(ps);
+    if (statementNode==NULL || !parserAttachChild(ps, node, statementNode)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -2094,7 +2113,7 @@ static ParseTreeNode *parseRepeatStatement(Parser *ps) {
 static ParseTreeNode *parseForStatement(Parser *ps) {
     ParseTreeNode *node=parserCreateNode(ps, "<for-statement>");
     ParseTreeNode *exprNode;
-    ParseTreeNode *compoundNode;
+    ParseTreeNode *statementNode;
 
     if (node==NULL) {
         return NULL;
@@ -2140,13 +2159,8 @@ static ParseTreeNode *parseForStatement(Parser *ps) {
         return NULL;
     }
 
-    /* Spesifikasi M3: for-statement wajib compound-statement */
-    if (parserCurrentType(ps)!=TOKEN_BEGINSY) {
-        parserRecordSyntaxErrorCurrent(ps, "Expected 'begin' (compound-statement) after 'do' in for-statement.");
-    }
-
-    compoundNode=parseCompoundStatement(ps);
-    if (compoundNode==NULL || !parserAttachChild(ps, node, compoundNode)) {
+    statementNode=parseStatement(ps);
+    if (statementNode==NULL || !parserAttachChild(ps, node, statementNode)) {
         parseTreeFree(node);
         return NULL;
     }
@@ -2161,6 +2175,11 @@ static ParseTreeNode *parseStatement(Parser *ps) {
 
     if (node==NULL) {
         return NULL;
+    }
+
+    if (!isStatementStart(current) &&
+        (current==TOKEN_SEMICOLON || isStatementListTerminator(current))) {
+        return node;
     }
 
     switch (current) {

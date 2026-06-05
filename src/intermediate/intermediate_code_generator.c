@@ -813,6 +813,49 @@ static bool emitValueGuardsForTabIndex(GeneratorContext *ctx, int tabIndex, Base
     return emitValueGuardsForType(ctx, tab[tabIndex].type, sourceType, tabIndex);
 }
 
+static bool emitAddressedSlotLoad(GeneratorContext *ctx, const AstNode *node, int offset) {
+    if (offset < 0) {
+        setError(ctx, "Intermediate Code Error: offset structured value tidak valid.");
+        return false;
+    }
+
+    if (!generateAddress(ctx, node)) {
+        return false;
+    }
+
+    if (offset > 0 &&
+        (!emitIntegerLiteral(ctx, offset) ||
+         !emitSimple(ctx, OPCODE_OPR, 0, OPR_ADD))) {
+        return false;
+    }
+
+    return emitSimple(ctx, OPCODE_LOD, 1, 0);
+}
+
+static bool emitStructuredArgument(GeneratorContext *ctx,
+                                   const AstNode *actual,
+                                   int formalTabIndex) {
+    int size;
+
+    if (formalTabIndex < 0 || formalTabIndex >= symTabCount()) {
+        setError(ctx, "Intermediate Code Error: parameter formal tidak valid.");
+        return false;
+    }
+
+    size = sizeOfType(tab[formalTabIndex].type, tab[formalTabIndex].ref);
+    if (size <= 0) {
+        size = 1;
+    }
+
+    for (int offset = 0; offset < size; offset++) {
+        if (!emitAddressedSlotLoad(ctx, actual, offset)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool emitCallArguments(GeneratorContext *ctx, const AstNode *callNode, const AstNode *declNode) {
     const AstNode *actuals = firstParamList(callNode);
     const AstNode *formals = firstParamList(declNode);
@@ -839,18 +882,33 @@ static bool emitCallArguments(GeneratorContext *ctx, const AstNode *callNode, co
             continue;
         }
         for (size_t j = 0; j < idents->childCount; j++) {
+            int formalTabIndex;
             if (formalIndex >= actualCount) {
                 setError(ctx, "Intermediate Code Error: parameter call '%s' kurang.",
                          callNode->sval != NULL ? callNode->sval : "?");
                 return false;
             }
-            if (!generateExpression(ctx, actuals->children[formalIndex])) {
+
+            formalTabIndex = idents->children[j]->tabIdx;
+            if (formalTabIndex < 0 || formalTabIndex >= symTabCount()) {
+                setError(ctx, "Intermediate Code Error: parameter formal tidak valid.");
                 return false;
             }
-            if (!emitValueGuardsForTabIndex(ctx,
-                                            idents->children[j]->tabIdx,
-                                            (BaseType)actuals->children[formalIndex]->typeIdx)) {
-                return false;
+
+            if (tab[formalTabIndex].type == TYPE_ARRAY ||
+                tab[formalTabIndex].type == TYPE_RECORD) {
+                if (!emitStructuredArgument(ctx, actuals->children[formalIndex], formalTabIndex)) {
+                    return false;
+                }
+            } else {
+                if (!generateExpression(ctx, actuals->children[formalIndex])) {
+                    return false;
+                }
+                if (!emitValueGuardsForTabIndex(ctx,
+                                                formalTabIndex,
+                                                (BaseType)actuals->children[formalIndex]->typeIdx)) {
+                    return false;
+                }
             }
             formalIndex++;
         }
@@ -960,8 +1018,11 @@ static bool generateWriteCall(GeneratorContext *ctx, const AstNode *node) {
     bool isWriteln = node->sval != NULL && strcasecmp(node->sval, "writeln") == 0;
 
     if (params == NULL || params->childCount == 0) {
-        setError(ctx, "Intermediate Code Error: write/writeln tanpa argumen belum didukung.");
-        return false;
+        if (isWriteln) {
+            return emitLiteral(ctx, runtimeValueString("")) &&
+                   emitSimple(ctx, OPCODE_OPR, 0, OPR_WRTLN);
+        }
+        return true;
     }
 
     for (size_t i = 0; i < params->childCount; i++) {

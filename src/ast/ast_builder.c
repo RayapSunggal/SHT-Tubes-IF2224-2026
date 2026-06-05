@@ -752,6 +752,9 @@ static AstNode *buildWhileStatement(const ParseTreeNode *n) {
         if (labelEq(c, "<expression>")) {
             AstNode *cond = buildExpression(c);
             if (cond == NULL || !astAddChild(wh, cond)) { astFree(wh); return NULL; }
+        } else if (labelEq(c, "<statement>")) {
+            AstNode *body = buildStatement(c);
+            if (body == NULL || !astAddChild(wh, body)) { astFree(wh); return NULL; }
         } else if (labelEq(c, "<compound-statement>")) {
             AstNode *body = buildCompoundStatement(c);
             if (body == NULL || !astAddChild(wh, body)) { astFree(wh); return NULL; }
@@ -787,6 +790,9 @@ static AstNode *buildForStatement(const ParseTreeNode *n) {
             AstNode *expr = buildExpression(c);
             if (expr == NULL || !astAddChild(forNode, expr)) { astFree(forNode); return NULL; }
             exprCount++;
+        } else if (labelEq(c, "<statement>")) {
+            AstNode *body = buildStatement(c);
+            if (body == NULL || !astAddChild(forNode, body)) { astFree(forNode); return NULL; }
         } else if (labelEq(c, "<compound-statement>")) {
             AstNode *body = buildCompoundStatement(c);
             if (body == NULL || !astAddChild(forNode, body)) { astFree(forNode); return NULL; }

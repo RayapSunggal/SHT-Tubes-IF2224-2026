@@ -1185,7 +1185,7 @@ Token getToken(Lexer *lx) {
                     SET_TOKEN(TOKEN_EQL, "==");
                 }
                 else {
-                    SET_TOKEN(TOKEN_EQL, "=");
+                    SET_UNKNOWN_TOKEN("=");
                 }
                 RETURN_TOKEN();
             case STATE_PERIOD:

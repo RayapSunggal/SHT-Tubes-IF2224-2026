@@ -525,7 +525,7 @@ bool is_while_statement_complete(Node *node) {
     if (!isExactLabel(node->child[0], "whilesy")) return false;
     if (!is_expression_complete(node->child[1])) return false;
     if (!isExactLabel(node->child[2], "dosy")) return false;
-    return is_compound_statement_complete(node->child[3]);
+    return is_statement_complete(node->child[3]);
 }
 
 // 30
@@ -550,7 +550,7 @@ bool is_for_statement_complete(Node *node) {
         return false;
     if (!is_expression_complete(node->child[5])) return false;
     if (!isExactLabel(node->child[6], "dosy")) return false;
-    return is_compound_statement_complete(node->child[7]);
+    return is_statement_complete(node->child[7]);
 }
 
 bool is_index_list_complete(Node *node) {
@@ -611,10 +611,6 @@ bool is_procedure_function_call_complete(Node *node) {
     if (effectiveChildCount >= 2 &&
         isExactLabel(node->child[effectiveChildCount - 1], "semicolon")) {
         effectiveChildCount--;
-    }
-
-    if (effectiveChildCount==1) {
-        return isIdentLabel(node->child[0]);
     }
 
     if (effectiveChildCount==3) {
