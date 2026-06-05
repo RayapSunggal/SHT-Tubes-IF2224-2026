@@ -1666,6 +1666,23 @@ static ParseTreeNode *parseFactor(Parser *ps) {
                 return NULL;
             }
             return node;
+        case TOKEN_PLUS:
+        case TOKEN_MINUS: {
+            ParseTreeNode *factorNode;
+
+            if (!parserExpectToken(ps, current, node)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+
+            factorNode=parseFactor(ps);
+            if (factorNode==NULL || !parserAttachChild(ps, node, factorNode)) {
+                parseTreeFree(node);
+                return NULL;
+            }
+
+            return node;
+        }
         case TOKEN_LPARENT: {
             ParseTreeNode *exprNode;
 

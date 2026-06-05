@@ -716,7 +716,11 @@ bool is_factor_complete(Node *node) {
     }
 
     if (node->childCount==2) {
-        if (!isExactLabel(node->child[0], "notsy")) return false;
+        if (!isExactLabel(node->child[0], "notsy") &&
+            !isExactLabel(node->child[0], "plus") &&
+            !isExactLabel(node->child[0], "minus")) {
+            return false;
+        }
         return is_factor_complete(node->child[1]);
     }
 

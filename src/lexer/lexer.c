@@ -44,7 +44,7 @@ static bool isIdentifierStart(char c) {
 
 
 static bool isIdentifierPart(char c) {
-    return isLetter(c);
+    return isLetter(c) || isDigitChar(c);
 }
 
 static bool isDefaultSeparatorChar(char c) {
@@ -369,10 +369,9 @@ Token getToken(Lexer *lx) {
                         RETURN_TOKEN();
                     case '-':
                         markTokenStart(lx);
-                        appendChar(lexeme, &idx, '-');
                         lexerAdvance(lx);
-                        lx->state=STATE_MINUS;
-                        break;
+                        SET_TOKEN(TOKEN_MINUS, "-");
+                        RETURN_TOKEN();
                     case '*':
                         markTokenStart(lx);
                         lexerAdvance(lx);

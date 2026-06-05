@@ -1083,6 +1083,20 @@ static AstNode *buildFactor(const ParseTreeNode *n) {
             return unop;
         }
 
+        if (labelPrefix(c, "PLUS") || labelPrefix(c, "plus")) {
+            return (n->childCount > 1) ? buildFactor(n->children[1]) : astCreateNode(AST_EMPTY_STMT);
+        }
+
+        if (labelPrefix(c, "MINUS") || labelPrefix(c, "minus")) {
+            AstNode *unop = astCreateSval(AST_UNOP, "-");
+            AstNode *operand = (n->childCount > 1) ? buildFactor(n->children[1]) : NULL;
+            if (unop == NULL || operand == NULL || !astAddChild(unop, operand)) {
+                astFree(unop); astFree(operand);
+                return NULL;
+            }
+            return unop;
+        }
+
         if (labelEq(c, "<variable>"))               return buildVariable(c);
         if (labelEq(c, "<procedure/function-call>")) return buildProcFuncCall(c, AST_FUNC_CALL);
         if (labelEq(c, "<expression>"))              return buildExpression(c);
