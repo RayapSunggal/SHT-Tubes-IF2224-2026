@@ -141,6 +141,45 @@ static int valueSizeForTabIndex(int tabIndex) {
     return size > 0 ? size : 1;
 }
 
+static int functionReturnSlotCount(GeneratorContext *ctx, int functionIndex, const char *name) {
+    int blockIndex;
+    int returnIndex;
+    int slots;
+
+    if (functionIndex < 0 || functionIndex >= symTabCount() ||
+        tab[functionIndex].obj != OBJ_FUNCTION) {
+        setError(ctx, "Intermediate Code Error: function call '%s' tidak valid.",
+                 name != NULL ? name : "?");
+        return 0;
+    }
+
+    blockIndex = tab[functionIndex].ref;
+    returnIndex = functionReturnTabIndexForCallInfo(functionIndex, blockIndex);
+    if (returnIndex < 0 || returnIndex >= symTabCount()) {
+        setError(ctx, "Intermediate Code Error: return function '%s' tidak valid.",
+                 name != NULL ? name : "?");
+        return 0;
+    }
+
+    slots = sizeOfType(tab[returnIndex].type, tab[returnIndex].ref);
+    return slots > 0 ? slots : 1;
+}
+
+static bool emitPopSlots(GeneratorContext *ctx, int slotCount) {
+    if (slotCount < 0) {
+        setError(ctx, "Intermediate Code Error: jumlah slot discard tidak valid.");
+        return false;
+    }
+
+    for (int i = 0; i < slotCount; i++) {
+        if (!emitSimple(ctx, OPCODE_OPR, 0, OPR_POP)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool addRuntimeCallInfo(GeneratorContext *ctx, int tabIndex, size_t target) {
     RuntimeCallInfo info;
     int blockIndex;
@@ -1348,8 +1387,9 @@ static bool generateWriteCall(GeneratorContext *ctx, const AstNode *node) {
     return true;
 }
 
-static bool generateProcedureCall(GeneratorContext *ctx, const AstNode *node) {
-    int procIndex;
+static bool generateCallStatement(GeneratorContext *ctx, const AstNode *node) {
+    int callIndex;
+    int discardSlots = 0;
     const AstNode *declNode;
 
     if (node->sval != NULL &&
@@ -1363,16 +1403,24 @@ static bool generateProcedureCall(GeneratorContext *ctx, const AstNode *node) {
         return generateWriteCall(ctx, node);
     }
 
-    procIndex = nodeSymbolIndex(node);
-    if (procIndex < 0 || procIndex >= symTabCount() || tab[procIndex].obj != OBJ_PROCEDURE) {
-        setError(ctx, "Intermediate Code Error: procedure call '%s' tidak valid.",
+    callIndex = nodeSymbolIndex(node);
+    if (callIndex < 0 || callIndex >= symTabCount() ||
+        (tab[callIndex].obj != OBJ_PROCEDURE && tab[callIndex].obj != OBJ_FUNCTION)) {
+        setError(ctx, "Intermediate Code Error: procedure/function call '%s' tidak valid.",
                  node->sval != NULL ? node->sval : "?");
         return false;
     }
 
-    declNode = findSubprogramNode(ctx, procIndex);
+    if (tab[callIndex].obj == OBJ_FUNCTION) {
+        discardSlots = functionReturnSlotCount(ctx, callIndex, node->sval);
+        if (ctx->hasError) {
+            return false;
+        }
+    }
+
+    declNode = findSubprogramNode(ctx, callIndex);
     if (declNode == NULL) {
-        setError(ctx, "Intermediate Code Error: deklarasi procedure '%s' tidak ditemukan.",
+        setError(ctx, "Intermediate Code Error: deklarasi procedure/function '%s' tidak ditemukan.",
                  node->sval != NULL ? node->sval : "?");
         return false;
     }
@@ -1381,7 +1429,11 @@ static bool generateProcedureCall(GeneratorContext *ctx, const AstNode *node) {
         return false;
     }
 
-    return emitCall(ctx, procIndex);
+    if (!emitCall(ctx, callIndex)) {
+        return false;
+    }
+
+    return emitPopSlots(ctx, discardSlots);
 }
 
 static bool generateIf(GeneratorContext *ctx, const AstNode *node) {
@@ -1630,7 +1682,7 @@ static bool generateStatement(GeneratorContext *ctx, const AstNode *node) {
         case AST_ASSIGN:
             return generateAssignment(ctx, node);
         case AST_PROC_CALL:
-            return generateProcedureCall(ctx, node);
+            return generateCallStatement(ctx, node);
         case AST_IF:
             return generateIf(ctx, node);
         case AST_WHILE:

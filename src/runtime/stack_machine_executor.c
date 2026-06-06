@@ -984,6 +984,17 @@ static bool executeRangeError(StackMachineExecutor *executor,
     return false;
 }
 
+static bool executePop(StackMachineExecutor *executor, const Instruction *instruction) {
+    RuntimeValue value = runtimeValueNone();
+
+    if (!stackPop(executor, instruction, &value)) {
+        return false;
+    }
+
+    runtimeValueFree(&value);
+    return true;
+}
+
 static bool executeOpr(StackMachineExecutor *executor, const Instruction *instruction) {
     OprCode code = (OprCode)instruction->operand;
 
@@ -1006,6 +1017,8 @@ static bool executeOpr(StackMachineExecutor *executor, const Instruction *instru
             return executeRangeError(executor, instruction, "IndexOutOfBoundsException", "index");
         case OPR_RANGE_ERROR:
             return executeRangeError(executor, instruction, "RangeCheckException", "value");
+        case OPR_POP:
+            return executePop(executor, instruction);
         case OPR_EQL:
         case OPR_NEQ:
         case OPR_LSS:

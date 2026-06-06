@@ -174,6 +174,7 @@ const char *oprCodeName(int code) {
         case OPR_INDEX_ERROR: return "INDEX_ERROR";
         case OPR_RANGE_ERROR: return "RANGE_ERROR";
         case OPR_TO_CHAR: return "TO_CHAR";
+        case OPR_POP: return "POP";
         default:        return "UNKNOWN";
     }
 }
