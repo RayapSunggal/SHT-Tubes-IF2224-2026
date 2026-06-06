@@ -1,5 +1,5 @@
 === Intermediate Code ===
-0 INT 0 7
+0 INT 0 8
 1 JMP 0 2
 2 LIT 0 17
 3 STO 0 3
